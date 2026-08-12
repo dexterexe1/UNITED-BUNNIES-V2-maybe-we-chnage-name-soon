@@ -170,6 +170,8 @@ afk_users = {}
 _recent_messages = {}  # user_id -> list of recent lowercased message contents (for dupMessages filter)
 
 # --- LEVELING SYSTEM CONFIG ---
+# Global kill switch: set True only if you want built-in XP again.
+LEVELING_SYSTEM_ENABLED = False
 xp_cooldowns = {}  # user_id -> last xp grant timestamp
 XP_COOLDOWN_SECONDS = 60
 XP_MIN = 5

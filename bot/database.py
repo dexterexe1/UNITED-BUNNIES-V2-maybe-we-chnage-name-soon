@@ -40,7 +40,7 @@ def init_db():
     if "levelup_channel_id" not in existing_cols:
         cursor.execute("ALTER TABLE server_config ADD COLUMN levelup_channel_id INTEGER DEFAULT NULL")
     if "levels_enabled" not in existing_cols:
-        cursor.execute("ALTER TABLE server_config ADD COLUMN levels_enabled INTEGER DEFAULT 1")
+        cursor.execute("ALTER TABLE server_config ADD COLUMN levels_enabled INTEGER DEFAULT 0")
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS noprefix_users (
             guild_id INTEGER NOT NULL,
@@ -667,7 +667,7 @@ def is_leveling_enabled(guild_id: int) -> bool:
     row = cursor.fetchone()
     conn.close()
     if row is None or row[0] is None:
-        return True
+        return False  # leveling off by default (use external leveling bots)
     return bool(row[0])
 
 def set_leveling_enabled(guild_id: int, enabled: bool):

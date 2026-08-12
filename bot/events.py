@@ -4,6 +4,7 @@ Extracted from the original monolithic bot.py. Logic unchanged.
 """
 import discord
 from discord.ext import commands
+import discord.app_commands as app_commands
 import datetime
 import asyncio
 import random
@@ -11,15 +12,18 @@ import re
 import time
 
 from bot.config import (
-    bot, quick_embed, REQUIRED_ROLE_ID, UTC, BRAND_COLOR,
+    bot, quick_embed, style_embed, REQUIRED_ROLE_ID, UTC, BRAND_COLOR,
     user_message_cooldowns, afk_users, _recent_messages,
     xp_cooldowns, XP_COOLDOWN_SECONDS, XP_MIN, XP_MAX,
+    LEVELING_SYSTEM_ENABLED,
+    EMOJI_BULLET,
 )
 from bot.database import (
     get_config, get_welcome_message, format_welcome_message,
     is_leveling_enabled, get_levelup_channel, add_xp, xp_for_level,
     get_level_data, has_noprefix_perm,
     get_all_role_menu_message_ids, get_role_menu_items,
+    get_vouch_channel, add_vouch, count_vouches,
 )
 from bot.status import publish_bot_status
 from bot.config import mod_group
@@ -208,185 +212,15 @@ async def on_message_edit(before, after):
             await channel.send(embed=embed)
 
 # ==========================================
-#         ✅ VOUCHING SYSTEM
+#         ✅ VOUCH AUTO-DETECT (pattern only; commands live in cogs/vouch.py)
 # ==========================================
 
-# Configuration Limits
 MAX_REASON_LENGTH = 300
 
-# Regular expression to extract: "vouch @user for [reason]"
 VOUCH_PATTERN = re.compile(
     r"\bvouch(?:es|ed|ing)?\b.*?<@!?(?P<id>\d+)>\s*(?:for\s+)?(?P<reason>.*)",
     re.IGNORECASE | re.DOTALL,
 )
-
-def get_vouch_channel(guild_id: int):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT vouch_channel_id FROM server_config WHERE guild_id = ?", (guild_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row and row[0]:
-        return row[0]
-    return None
-
-def set_vouch_channel(guild_id: int, channel_id: int):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO server_config (guild_id, welcome_channel_id, log_channel_id, vouch_channel_id)
-        VALUES (?, 0, 0, ?)
-        ON CONFLICT(guild_id) DO UPDATE SET vouch_channel_id = ?
-    """, (guild_id, channel_id, channel_id))
-    conn.commit()
-    conn.close()
-
-def clear_vouch_channel(guild_id: int):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE server_config SET vouch_channel_id = NULL WHERE guild_id = ?", (guild_id,))
-    conn.commit()
-    conn.close()
-
-async def _check_vouch_channel(ctx: commands.Context) -> bool:
-    """Helper function to verify if the command is run in the allowed channel."""
-    vouch_channel_id = get_vouch_channel(ctx.guild.id)
-    if vouch_channel_id is None or ctx.channel.id == vouch_channel_id:
-        return True
-    await ctx.send(embed=quick_embed(f"❌ Vouching commands are restricted to <#{vouch_channel_id}> in this server."))
-    return False
-
-# ----------------- Commands -----------------
-
-@bot.hybrid_command(name="vouch", description="Vouch for a user")
-@commands.guild_only()
-@app_commands.describe(member="User to vouch for", comment="Optional comment (e.g. what for)")
-async def vouch_prefix(ctx: commands.Context, member: discord.Member = None, *, comment: str = None):
-    # If a member is tagged but no comment is provided, redirect to showing their profile status
-    if member is not None and comment is None:
-        await vouches_prefix(ctx, member)
-        return
-
-    if member is None:
-        await ctx.send(embed=quick_embed(f"❌ Syntax: `{ctx.prefix}vouch @user [comment]`"))
-        return
-        
-    if not await _check_vouch_channel(ctx):
-        return
-        
-    if member.id == ctx.author.id:
-        await ctx.send(embed=quick_embed("❌ You can't vouch for yourself."))
-        return
-    if member.bot:
-        await ctx.send(embed=quick_embed("❌ You can't vouch for a bot."))
-        return
-
-    add_vouch(ctx.guild.id, member.id, ctx.author.id, comment)
-    total = count_vouches(ctx.guild.id, member.id)
-
-    embed = discord.Embed(
-        description=f"✅ {ctx.author.mention} vouched for {member.mention}",
-        color=discord.Color.green(),
-    )
-    if comment:
-        embed.add_field(name="Comment", value=comment, inline=False)
-    embed.set_footer(text=f"{member.display_name} now has {total} vouch(es)")
-    await ctx.send(embed=embed)
-
-
-@bot.hybrid_command(name="unvouch", description="Remove your most recent vouch for a user")
-@commands.guild_only()
-@app_commands.describe(member="User to remove your vouch from")
-async def unvouch_prefix(ctx: commands.Context, member: discord.Member = None):
-    if member is None:
-        await ctx.send(embed=quick_embed(f"❌ Syntax: `{ctx.prefix}unvouch @user`"))
-        return
-        
-    if not await _check_vouch_channel(ctx):
-        return
-        
-    removed = remove_last_vouch(ctx.guild.id, member.id, ctx.author.id)
-    if removed:
-        await ctx.send(embed=quick_embed(f"Removed your vouch for {member.mention}."))
-    else:
-        await ctx.send(embed=quick_embed(f"You haven't vouched for {member.mention}."))
-
-
-@bot.hybrid_command(name="vouches", description="Show vouches for a user")
-@commands.guild_only()
-@app_commands.describe(member="User to check (defaults to yourself)")
-async def vouches_prefix(ctx: commands.Context, member: discord.Member = None):
-    member = member or ctx.author
-    
-    total = count_vouches(ctx.guild.id, member.id)
-    recent = list_vouches(ctx.guild.id, member.id, limit=5)
-
-    embed = discord.Embed(
-        title=f"Vouches for {member.display_name}",
-        description=f"**Total:** {total}",
-        color=discord.Color.gold(),
-    )
-    embed.set_thumbnail(url=member.display_avatar.url)
-
-    if recent:
-        lines = []
-        for author_id, comment, created_at in recent:
-            author = ctx.guild.get_member(author_id)
-            author_name = author.mention if author else f"<@{author_id}>"
-            line = f"- {author_name}"
-            if comment:
-                line += f" — {comment}"
-            lines.append(line)
-        embed.add_field(name="Recent", value="\n".join(lines), inline=False)
-
-    await ctx.send(embed=embed)
-
-
-@bot.hybrid_command(name="vouchleaderboard", aliases=["vouchlb"], description="Show the most-vouched users in this server")
-@commands.guild_only()
-async def vouch_leaderboard_prefix(ctx: commands.Context):
-    rows = vouch_leaderboard(ctx.guild.id, limit=10)
-    if not rows:
-        await ctx.send(embed=quick_embed("No vouches yet in this server."))
-        return
-        
-    lines = []
-    for i, (target_id, c) in enumerate(rows, start=1):
-        member = ctx.guild.get_member(target_id)
-        name = member.mention if member else f"<@{target_id}>"
-        lines.append(f"**{i}.** {name} — {c} vouch(es)")
-        
-    embed = discord.Embed(
-        title="🏆 Vouch Leaderboard", 
-        description="\n".join(lines), 
-        color=discord.Color.gold()
-    )
-    await ctx.send(embed=embed)
-
-
-# ------------- Configuration -------------
-
-@bot.hybrid_command(name="setvouchchannel", description="[Mod] Set the channel where vouching happens")
-@commands.guild_only()
-@commands.has_permissions(manage_guild=True)
-@app_commands.describe(channel="The channel to dedicate to vouching")
-async def set_vouch_channel_prefix(ctx: commands.Context, channel: discord.TextChannel):
-    """Restricts vouching and tracking to a single dedicated text channel."""
-    set_vouch_channel(ctx.guild.id, channel.id)
-    embed = discord.Embed(
-        description=f"✅ Vouch channel successfully set to {channel.mention}.\n\nUsers can now chat normally here to issue auto-vouches, or use manual lookup commands.",
-        color=discord.Color.green()
-    )
-    await ctx.send(embed=embed)
-
-
-@bot.hybrid_command(name="clearvouchchannel", description="[Mod] Remove the vouch channel restriction")
-@commands.guild_only()
-@commands.has_permissions(manage_guild=True)
-async def clear_vouch_channel_prefix(ctx: commands.Context):
-    """Removes the channel restriction so vouch commands work everywhere."""
-    clear_vouch_channel(ctx.guild.id)
-    await ctx.send(embed=quick_embed("✅ Vouch channel restriction cleared. Vouch commands will now work across all channels."))
 
 
 # ==========================================
@@ -461,10 +295,9 @@ async def send_noprefix_confirmation(message: discord.Message, command_name: str
 # dropped.
 
 async def handle_leveling(message):
-    """Grants XP for a message per the dashboard's Leveling settings
-    (falling back to the legacy hardcoded defaults / SQLite toggle if
-    there's no Mongo connection), sends a level-up message, and applies
-    any role rewards for the new level."""
+    """Grants XP when LEVELING_SYSTEM_ENABLED is True. Disabled by default."""
+    if not LEVELING_SYSTEM_ENABLED:
+        return
     guild = message.guild
     author = message.author
     settings = mongo_bridge.get_leveling_settings(guild.id) if mongo_bridge.enabled() else {
