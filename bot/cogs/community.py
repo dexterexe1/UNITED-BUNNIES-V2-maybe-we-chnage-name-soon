@@ -9,9 +9,9 @@ import datetime
 import asyncio
 
 from bot.config import (
-    bot, quick_embed, REQUIRED_ROLE_ID, UTC, BRAND_COLOR,
+    bot, quick_embed, style_embed, REQUIRED_ROLE_ID, UTC, BRAND_COLOR,
     SUPPORT_SERVER_URL, DASHBOARD_URL, INVITE_URL,
-    has_required_slash_role, mod_group,
+    has_required_slash_role, mod_group, LEVELING_SYSTEM_ENABLED, EMOJI_BULLET,
 )
 from bot.database import (
     get_level_data, add_xp, level_leaderboard, xp_for_level,
@@ -100,6 +100,13 @@ def make_progress_bar(current: int, needed: int, length: int = 15) -> str:
 @bot.hybrid_command(name="rank", aliases=["level", "xp"], description="Check level and XP progress")
 @app_commands.describe(member="User to check (defaults to yourself)")
 async def rank_prefix(ctx, member: discord.Member = None):
+    if not LEVELING_SYSTEM_ENABLED:
+        await ctx.send(embed=style_embed(
+            "Leveling Disabled",
+            kind="info",
+            description=f"{EMOJI_BULLET} Built-in leveling is turned off.\n{EMOJI_BULLET} Use a dedicated leveling bot if you need XP ranks.",
+        ))
+        return
     member = member or ctx.author
     xp, level = get_level_data(ctx.guild.id, member.id)
     needed_for_next = xp_for_level(level + 1)
@@ -117,6 +124,13 @@ async def rank_prefix(ctx, member: discord.Member = None):
 
 @bot.hybrid_command(name="levelleaderboard", aliases=["levellb", "ranklb", "ll", "levels"], description="Show the top XP earners in this server")
 async def level_leaderboard_prefix(ctx):
+    if not LEVELING_SYSTEM_ENABLED:
+        await ctx.send(embed=style_embed(
+            "Leveling Disabled",
+            kind="info",
+            description=f"{EMOJI_BULLET} Built-in leveling is turned off.\n{EMOJI_BULLET} Use a dedicated leveling bot if you need XP ranks.",
+        ))
+        return
     rows = level_leaderboard(ctx.guild.id, limit=10)
     if not rows:
         await ctx.send(embed=quick_embed("No one has earned XP in this server yet."))
@@ -320,18 +334,6 @@ HELP_CATEGORIES = {
             ("❤️ Playlist", (
                 "`?like <url> [title]` — Save a track.\n"
                 "`?playlist [view|play|clear]` — Manage your playlist."
-            )),
-        ],
-    },
-    "leveling": {
-        "label": "Leveling",
-        "emoji": "📈",
-        "title": "📈 Leveling & XP",
-        "description": "__**Earn XP by chatting.**__",
-        "fields": [
-            ("📈 Commands", (
-                "`?rank` **or** `?level` **or** `?xp` `[@user]` — Level & progress bar.\n"
-                "`?levelleaderboard` **or** `?ll` **or** `?levels` **or** `?levellb` — Top XP."
             )),
         ],
     },
