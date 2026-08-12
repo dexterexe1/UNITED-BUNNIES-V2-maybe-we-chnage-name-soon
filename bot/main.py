@@ -12,17 +12,19 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from bot.config import bot
+# IMPORTANT: name the Discord client something other than `bot`.
+# `import bot.xxx` rebinds the name `bot` to the package and would break `.run()`.
+from bot.config import bot as client
 from bot.database import init_db
 from bot.status import run_server
 
 # Initialize SQLite schema
 init_db()
 
-# Register global checks (attaches @bot.check)
+# Register global checks (attaches @bot.check on the shared client)
 import bot.checks  # noqa: F401
 
-# Feature modules — importing them registers commands/events on `bot`
+# Feature modules — importing them registers commands/events on the client
 import bot.cogs.music  # noqa: F401
 import bot.cogs.tickets  # noqa: F401
 import bot.cogs.reaction_roles  # noqa: F401
@@ -51,7 +53,7 @@ def main():
     if os.getenv("PORT"):
         Thread(target=run_server, daemon=True).start()
 
-    bot.run(token)
+    client.run(token)
 
 
 if __name__ == "__main__":
