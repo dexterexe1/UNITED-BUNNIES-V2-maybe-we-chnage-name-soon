@@ -21,9 +21,10 @@ from bot.config import (
 from bot.database import (
     get_config, get_welcome_message, format_welcome_message,
     is_leveling_enabled, get_levelup_channel, add_xp, xp_for_level,
-    get_level_data, has_noprefix_perm,
+    get_level_data, has_noprefix_perm, level_leaderboard,
     get_all_role_menu_message_ids, get_role_menu_items,
     get_vouch_channel, add_vouch, count_vouches,
+    update_warnings, reset_warnings,
 )
 from bot.status import publish_bot_status
 from bot.config import mod_group
@@ -49,6 +50,11 @@ except Exception:
 async def on_ready():
     bot.tree.add_command(mod_group) 
     print(f"✨ Success! {bot.user.name} is online.")
+    print(f"📋 Prefix/hybrid commands loaded: {len(bot.commands)}")
+    # Sample public commands so deploy logs prove help/ping exist
+    for name in ("help", "ping", "play", "warn", "vouch"):
+        c = bot.get_command(name)
+        print(f"   - {name}: {'OK' if c else 'MISSING'}")
     await publish_bot_status()
 
     # Re-register persistent views (buttons with custom_id) so they keep
@@ -91,8 +97,16 @@ async def on_ready():
     # dashboard actually take effect here. Safe no-op if MONGO_URI is unset.
     await mongo_bridge.connect()
     bot.loop.create_task(mongo_bridge.refresh_loop())
-    bot.loop.create_task(reaction_panel_post_loop())
-    bot.loop.create_task(leaderboard_push_loop())
+
+    # Optional background loops (defined in cogs / later in this file)
+    try:
+        from bot.cogs.reaction_roles import reaction_panel_post_loop
+        bot.loop.create_task(reaction_panel_post_loop())
+    except Exception as e:
+        print(f"⚠️ reaction_panel_post_loop not started: {e}")
+
+    if LEVELING_SYSTEM_ENABLED:
+        bot.loop.create_task(leaderboard_push_loop())
 
 # --- GUILD LIST FRESHNESS ---
 @bot.event
@@ -498,7 +512,10 @@ async def on_message(message):
             await run_message_as_command(message)
         return
 
+    # Staff with Manage Messages skip automod, but MUST still run prefix commands.
     if message.author.guild_permissions.manage_messages:
+        await handle_leveling(message)
+        await bot.process_commands(message)
         return
 
     now = datetime.datetime.now()
