@@ -39,7 +39,7 @@ except ImportError:  # motor not installed — bridge just stays disabled
     AsyncIOMotorClient = None
 
 MONGO_URI = os.getenv("MONGO_URI")
-MONGO_DB = os.getenv("MONGO_DB", "bunnydb")
+MONGO_DB = os.getenv("MONGO_DB", "vortexdb")
 REFRESH_SECONDS = 20
 
 _client = None

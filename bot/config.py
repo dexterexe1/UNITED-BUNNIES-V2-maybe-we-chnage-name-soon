@@ -38,27 +38,15 @@ INVITE_URL = os.getenv(
 )
 
 # --- BRAND COLOR ---
-BRAND_COLOR = 0x7B68EE  # medium slate blue / purple
+BRAND_COLOR = 0x8B5CF6  # Vortex gradient purple
 
-
-def quick_embed(text: str, *, title: str | None = None) -> discord.Embed:
-    """Simple themed embed. Prefer style_embed() for the purple card look."""
-    color = BRAND_COLOR
-    if text.startswith(("❌", "❗", "🚫", "💔")):
-        color = discord.Color.red().value
-    elif text.startswith(("✅", "🎉", "🔓")):
-        color = discord.Color.green().value
-    elif text.startswith(("⚠️", "🤫", "🔒")):
-        color = discord.Color.gold().value
-    embed = discord.Embed(description=text, color=color, timestamp=datetime.datetime.now(UTC))
-    if title:
-        embed.title = title
-    return embed
-
-
-# Decorative markers (Unicode — swap for your server custom emojis anytime)
-EMOJI_DIAMOND = "◆"       # title sides  (replace with <:name:id> if you have custom)
-EMOJI_BULLET = "•"        # field bullets
+# --- BRAND EMOJI ---
+# Replace these with your actual server custom emojis once you have them.
+# Get the full string by typing \:youremoji: in Discord chat.
+# Example: EMOJI_DIAMOND = "<:vortex_diamond:1234567890123456789>"
+EMOJI_DIAMOND = "◈"       # title decorator — swap with your custom emoji
+EMOJI_BULLET  = "›"       # field bullet   — swap with your custom emoji
+BRAND_EMOJI   = "<:vortex:1537015506341462047>"  # Used in titles/footers
 
 
 def style_embed(
