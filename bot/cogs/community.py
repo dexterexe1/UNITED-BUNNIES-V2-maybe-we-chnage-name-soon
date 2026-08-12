@@ -496,7 +496,6 @@ async def help_prefix(ctx):
 
 
 @bot.hybrid_command(name="afk", description="Set yourself as AFK")
-@commands.has_role(REQUIRED_ROLE_ID)
 @app_commands.describe(reason="Why you're AFK (optional)")
 async def afk_prefix(ctx, *, reason: str = "AFK"):
     afk_users[ctx.author.id] = {"reason": reason, "timestamp": datetime.datetime.now(), "old_name": ctx.author.nick}
@@ -505,9 +504,12 @@ async def afk_prefix(ctx, *, reason: str = "AFK"):
     await ctx.send(embed=quick_embed(f"💤 {ctx.author.mention} is now AFK."))
 
 @bot.hybrid_command(name="ping", description="Check the bot's latency")
-@commands.has_role(REQUIRED_ROLE_ID)
 async def ping_prefix(ctx):
-    await ctx.send(embed=quick_embed(f"🛰️ Latency: `{round(bot.latency * 1000)}ms`"))
+    await ctx.send(embed=style_embed(
+        "Ping",
+        kind="info",
+        description=f"{EMOJI_BULLET} latency: **{round(bot.latency * 1000)}ms**",
+    ))
 
 async def send_gif_embed(channel, query: str, title: str = None):
     loop = asyncio.get_running_loop()
