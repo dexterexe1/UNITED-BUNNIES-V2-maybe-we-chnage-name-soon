@@ -184,7 +184,7 @@ def init_db():
     conn.commit()  # ← Keep this line exactly where it is
     conn.close()
 
-init_db()
+# init_db() is called explicitly in main.py, so no need to call it at module level
 
 # --- PLAYLIST DATABASE UTILITIES ---
 def add_liked_song(user_id: int, title: str, url: str):
@@ -345,6 +345,7 @@ def add_vouch(guild_id: int, target_id: int, author_id: int, comment: str = None
     conn.close()
 
 def remove_last_vouch(guild_id: int, target_id: int, author_id: int) -> bool:
+    """Remove the most recent vouch the given author gave to target. Used by regular users."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute(
@@ -359,6 +360,38 @@ def remove_last_vouch(guild_id: int, target_id: int, author_id: int) -> bool:
     conn.commit()
     conn.close()
     return True
+
+
+def staff_remove_vouch(guild_id: int, target_id: int) -> bool:
+    """Remove the most recent vouch for target regardless of who gave it. Staff-only action."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id FROM vouches WHERE guild_id = ? AND target_id = ? ORDER BY id DESC LIMIT 1",
+        (guild_id, target_id),
+    )
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return False
+    cursor.execute("DELETE FROM vouches WHERE id = ?", (row[0],))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def staff_clear_all_vouches(guild_id: int, target_id: int) -> int:
+    """Delete every vouch for target in this guild. Returns count removed. Staff-only action."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM vouches WHERE guild_id = ? AND target_id = ?",
+        (guild_id, target_id),
+    )
+    count = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return count
 
 def count_vouches(guild_id: int, target_id: int) -> int:
     conn = sqlite3.connect(DB_FILE)

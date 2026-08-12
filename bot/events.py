@@ -192,7 +192,7 @@ async def on_member_join(member):
             embed.set_thumbnail(url=member.display_avatar.url)
             embed.set_image(url="https://media.giphy.com/media/l0MYC0LajbaPoEADu/giphy.gif")
             embed.set_footer(text=f"Member Count Total: {member.guild.member_count}")
-            await channel.send(content=member.mention, embed=embed)
+            await channel.send(content=member.mention, view=embed_to_view(embed))
 
 
 @bot.event

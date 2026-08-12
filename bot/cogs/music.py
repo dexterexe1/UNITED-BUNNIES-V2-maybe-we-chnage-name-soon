@@ -1,4 +1,3 @@
-from bot.ui.premium_cards import quick_card_view, style_card_view, embed_to_view
 """
 music.py — Music engine (play, queue, volume, loop, playlist).
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -9,11 +8,16 @@ import discord.app_commands as app_commands
 import yt_dlp
 import asyncio
 import datetime
+import shutil
+import os
 
 from bot.config import (
     bot, quick_embed, song_queues, now_playing, song_volumes, loop_modes,
 )
 from bot.database import add_liked_song, get_liked_songs, clear_liked_songs
+
+# Auto-detect ffmpeg location (works on Windows, Linux, macOS)
+FFMPEG_PATH = shutil.which("ffmpeg") or os.getenv("FFMPEG_PATH") or "/usr/bin/ffmpeg"
 
 def play_next_in_queue(ctx):
     guild_id = ctx.guild.id
@@ -37,7 +41,7 @@ def play_next_in_queue(ctx):
         ffmpeg_options = {
             'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
             'options': '-vn',
-            'ffmpeg_location': '/usr/bin/ffmpeg'  # ← ADD THIS LINE
+            'ffmpeg_location': FFMPEG_PATH  # Auto-detected or from env
         }
 
         volume = song_volumes.get(guild_id, 1.0)
@@ -129,7 +133,7 @@ async def play_audio_command(ctx, *, search_or_url: str = None):
     ffmpeg_options = {
         'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
         'options': '-vn',
-        'ffmpeg_location': '/usr/bin/ffmpeg'  # ← Render's ffmpeg path
+        'ffmpeg_location': FFMPEG_PATH  # Auto-detected or from env
     }
 
     if vc.is_playing():

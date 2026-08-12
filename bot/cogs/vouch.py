@@ -1,8 +1,8 @@
-from bot.ui.premium_cards import quick_card_view, style_card_view, embed_to_view, purple_embed
 """
 vouch.py — Vouching system.
 Extracted from the original monolithic bot.py. Logic unchanged.
 """
+from bot.ui.premium_cards import quick_card_view, style_card_view, embed_to_view, purple_embed
 import discord
 from discord.ext import commands
 import discord.app_commands as app_commands
@@ -11,11 +11,12 @@ import datetime
 import re
 import sqlite3
 
-from bot.config import bot, quick_embed, REQUIRED_ROLE_ID, UTC
+from bot.config import bot, quick_embed, REQUIRED_ROLE_ID, UTC, is_staff, staff_check
 from bot.database import (
     DB_FILE,
     add_vouch, remove_last_vouch, count_vouches, list_vouches, vouch_leaderboard,
     get_vouch_channel, set_vouch_channel, clear_vouch_channel,
+    staff_remove_vouch, staff_clear_all_vouches,
 )
 
 
