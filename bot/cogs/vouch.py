@@ -1,4 +1,4 @@
-from bot.ui.premium_cards import quick_card_view, style_card_view, embed_to_view
+from bot.ui.premium_cards import quick_card_view, style_card_view, embed_to_view, purple_embed
 """
 vouch.py — Vouching system.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -65,14 +65,20 @@ async def vouch_prefix(ctx: commands.Context, member: discord.Member = None, *, 
     add_vouch(ctx.guild.id, member.id, ctx.author.id, comment)
     total = count_vouches(ctx.guild.id, member.id)
 
-    embed = discord.Embed(
-        description=f"✅ {ctx.author.mention} vouched for {member.mention}",
-        color=discord.Color.green(),
-    )
+    # Premium purple gradient embed like the reference image
+    description = f"✨ {ctx.author.mention} vouched for {member.mention}"
+    fields = []
     if comment:
-        embed.add_field(name="Comment", value=comment, inline=False)
-    embed.set_footer(text=f"{member.display_name} now has {total} vouch(es)")
-    await ctx.send(view=embed_to_view(embed))
+        fields.append(("💬 Comment", comment, False))
+    
+    embed = purple_embed(
+        title="VOUCH SYSTEM",
+        description=description,
+        fields=fields,
+        footer=f"✨ User: @{member.display_name} • Vouches: {total}",
+        thumbnail_url=member.display_avatar.url,
+    )
+    await ctx.send(embed=embed)
 
 
 @bot.hybrid_command(name="unvouch", description="Remove your most recent vouch for a user")

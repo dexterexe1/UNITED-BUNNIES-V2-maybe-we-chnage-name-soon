@@ -1,8 +1,9 @@
 import discord
 
-# United Bunnies brand palette
-PURPLE = 0x9B59B6
-DEEP_PURPLE = 0x6C3483
+# United Bunnies brand palette - PREMIUM PURPLE THEME
+PURPLE = 0x9B59B6           # Main brand purple
+DEEP_PURPLE = 0x6C3483      # Dark purple accent
+GRADIENT_PURPLE = 0x8B5CF6  # Vibrant gradient purple (matches the image)
 GREEN = 0x57F287
 GOLD = 0xFEE75C
 RED = 0xED4245
@@ -10,19 +11,20 @@ BLUE = 0x5865F2
 
 
 def _accent(kind: str = "info") -> int:
+    """Returns the purple gradient color for all embeds to match the premium aesthetic."""
     return {
-        "info": PURPLE,
+        "info": GRADIENT_PURPLE,      # Changed to gradient purple
         "success": GREEN,
         "warn": GOLD,
         "warning": GOLD,
         "error": RED,
         "mod": DEEP_PURPLE,
-        "purple": PURPLE,
-        "blue": BLUE,
-        "fun": PURPLE,
+        "purple": GRADIENT_PURPLE,    # Changed to gradient purple
+        "blue": GRADIENT_PURPLE,      # Changed to gradient purple for consistency
+        "fun": GRADIENT_PURPLE,       # Changed to gradient purple
         "love": 0xFF6B9A,
-        "music": BLUE,
-    }.get((kind or "info").lower(), PURPLE)
+        "music": GRADIENT_PURPLE,     # Changed to gradient purple
+    }.get((kind or "info").lower(), GRADIENT_PURPLE)  # Default to gradient purple
 
 
 def _color_value(color) -> int | None:
@@ -46,14 +48,18 @@ def premium_card_view(
     image_url: str | None = None,
     thumbnail_url: str | None = None,
 ) -> discord.ui.LayoutView:
-    """Build a real Discord Components V2 card.
+    """Build a real Discord Components V2 card with purple gradient premium theme.
 
     Uses LayoutView + Container + TextDisplay/Section/MediaGallery. It does not
     create a classic discord.Embed, so there is no classic embed accent strip.
     """
     view = discord.ui.LayoutView(timeout=None)
     parts: list[discord.ui.Item] = []
+    
+    # Add sparkle decorations to title for premium look
     heading = str(title).strip()
+    if not heading.startswith("✨") and not heading.startswith("<:"):
+        heading = f"✨ {heading} ✨"
 
     if thumbnail_url and description:
         section = discord.ui.Section(accessory=discord.ui.Thumbnail(media=thumbnail_url))
@@ -189,3 +195,48 @@ def embed_to_view(embed: discord.Embed) -> discord.ui.LayoutView:
         image_url=image_url,
         thumbnail_url=thumbnail_url,
     )
+
+
+def purple_embed(
+    title: str,
+    description: str | None = None,
+    *,
+    fields: list[tuple[str, str, bool]] | None = None,
+    footer: str | None = None,
+    thumbnail_url: str | None = None,
+    image_url: str | None = None,
+) -> discord.Embed:
+    """Create a classic discord.Embed with the premium purple gradient aesthetic.
+    
+    This matches the style from the reference image:
+    - Purple gradient color (#8B5CF6)
+    - Sparkle emojis ✨ in the title
+    - Clean, premium look
+    
+    Use this for commands that need classic embeds (e.g., when mixing with buttons/selects).
+    """
+    # Add sparkle decorations to title
+    clean_title = str(title).strip()
+    if not clean_title.startswith("✨") and not clean_title.startswith("<:"):
+        clean_title = f"✨ {clean_title} ✨"
+    
+    embed = discord.Embed(
+        title=clean_title,
+        description=description,
+        color=GRADIENT_PURPLE,  # The premium purple gradient
+    )
+    
+    if fields:
+        for name, value, inline in fields:
+            embed.add_field(name=name, value=value, inline=inline)
+    
+    if footer:
+        embed.set_footer(text=footer)
+    
+    if thumbnail_url:
+        embed.set_thumbnail(url=thumbnail_url)
+    
+    if image_url:
+        embed.set_image(url=image_url)
+    
+    return embed

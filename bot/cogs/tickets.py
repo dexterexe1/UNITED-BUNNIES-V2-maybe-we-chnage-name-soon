@@ -417,10 +417,8 @@ class TicketPanelView(discord.ui.View):
                 return
 
         await interaction.response.send_message(
-            embed=quick_embed(
-                "🎫 What do you need help with?"
-            ),
             view=TicketTypeSelectView(),
+            content="🎫 **What do you need help with?**",
             ephemeral=True,
         )
 
