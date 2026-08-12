@@ -1,3 +1,4 @@
+from bot.ui.premium_cards import quick_card_view, style_card_view
 """
 applications.py — Application form system.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -170,11 +171,11 @@ class ApplicationReviewView(discord.ui.View):
                 api_url = DASHBOARD_URL.rstrip("/") + "/api/v1/guilds/" + str(interaction.guild.id) + "/applications/submissions/" + self.submission_id + "/status"
                 async with session.patch(api_url, json={"status": "accepted"}, headers=headers) as resp:
                     if resp.status == 200:
-                        await interaction.response.send_message(embed=quick_embed("✅ Application marked as accepted."), ephemeral=True)
+                        await interaction.response.send_message(view=quick_card_view("✅ Application marked as accepted."), ephemeral=True)
                     else:
-                        await interaction.response.send_message(embed=quick_embed(f"❌ Failed to update status: {resp.status}"), ephemeral=True)
+                        await interaction.response.send_message(view=quick_card_view(f"❌ Failed to update status: {resp.status}"), ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(embed=quick_embed(f"❌ Error: {e}"), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view(f"❌ Error: {e}"), ephemeral=True)
 
     @discord.ui.button(label="Reject", style=discord.ButtonStyle.danger, emoji="❌", custom_id="app_reject", row=0)
     async def reject_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -184,11 +185,11 @@ class ApplicationReviewView(discord.ui.View):
                 api_url = DASHBOARD_URL.rstrip("/") + "/api/v1/guilds/" + str(interaction.guild.id) + "/applications/submissions/" + self.submission_id + "/status"
                 async with session.patch(api_url, json={"status": "rejected"}, headers=headers) as resp:
                     if resp.status == 200:
-                        await interaction.response.send_message(embed=quick_embed("❌ Application marked as rejected."), ephemeral=True)
+                        await interaction.response.send_message(view=quick_card_view("❌ Application marked as rejected."), ephemeral=True)
                     else:
-                        await interaction.response.send_message(embed=quick_embed(f"❌ Failed to update status: {resp.status}"), ephemeral=True)
+                        await interaction.response.send_message(view=quick_card_view(f"❌ Failed to update status: {resp.status}"), ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(embed=quick_embed(f"❌ Error: {e}"), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view(f"❌ Error: {e}"), ephemeral=True)
 
 
 @bot.tree.command(name="deploy-application", description="📝 [Mod] Deploy an application form panel to a channel.")
@@ -198,7 +199,7 @@ async def deploy_application_slash(interaction: discord.Interaction, form_id: st
     # Find the application form
     form_data = mongo_bridge.find_application_form_by_id(interaction.guild.id, form_id)
     if not form_data:
-        await interaction.response.send_message(embed=quick_embed(f"❌ Application form not found."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view(f"❌ Application form not found."), ephemeral=True)
         return
 
     # Build the embed from form config
@@ -233,7 +234,7 @@ async def deploy_application_slash(interaction: discord.Interaction, form_id: st
 async def application_forms_slash(interaction: discord.Interaction):
     forms = mongo_bridge.get_application_forms(interaction.guild.id)
     if not forms:
-        await interaction.response.send_message(embed=quick_embed("📋 No application forms configured yet."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view("📋 No application forms configured yet."), ephemeral=True)
         return
 
     lines = []
@@ -255,11 +256,11 @@ async def on_interaction(interaction: discord.Interaction):
         form_id = interaction.data["custom_id"].replace("app_apply_", "", 1)
         form_data = mongo_bridge.find_application_form_by_id(interaction.guild.id, form_id)
         if not form_data:
-            await interaction.response.send_message(embed=quick_embed("❌ This application form no longer exists."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ This application form no longer exists."), ephemeral=True)
             return
 
         if form_data.get("status") != "active":
-            await interaction.response.send_message(embed=quick_embed("❌ This application form is not currently accepting submissions."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ This application form is not currently accepting submissions."), ephemeral=True)
             return
 
         # Check if user already has a pending submission
@@ -275,7 +276,7 @@ async def on_interaction(interaction: discord.Interaction):
                             if sub.get("applicant", {}).get("discordUserId") == str(interaction.user.id):
                                 if sub.get("status") in ["pending", "reviewing"]:
                                     await interaction.response.send_message(
-                                        embed=quick_embed("❗ You already have a pending application for this form."),
+                                        view=quick_card_view("❗ You already have a pending application for this form."),
                                         ephemeral=True,
                                     )
                                     return
@@ -300,9 +301,9 @@ class ControlPanelView(discord.ui.View):
         if existing:
             channel = interaction.guild.get_channel(existing)
             if channel:
-                await interaction.response.send_message(embed=quick_embed(f"❗ You already have an open ticket: {channel.mention}"), ephemeral=True)
+                await interaction.response.send_message(view=quick_card_view(f"❗ You already have an open ticket: {channel.mention}"), ephemeral=True)
                 return
-        await interaction.response.send_message(embed=quick_embed("🎫 Creating your ticket..."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view("🎫 Creating your ticket..."), ephemeral=True)
         channel = await open_new_ticket(interaction.guild, interaction.user)
         await interaction.followup.send(f"✅ Ticket created: {channel.mention}", ephemeral=True)
 
@@ -326,7 +327,7 @@ class ControlPanelView(discord.ui.View):
     async def nowplaying_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         current = now_playing.get(interaction.guild.id)
         if not current:
-            await interaction.response.send_message(embed=quick_embed("❌ Nothing is currently playing."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ Nothing is currently playing."), ephemeral=True)
             return
         embed = discord.Embed(
             title="🎶 Now Playing",

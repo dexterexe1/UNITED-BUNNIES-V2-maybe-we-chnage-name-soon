@@ -1,3 +1,4 @@
+from bot.ui.premium_cards import quick_card_view, style_card_view
 """
 vouch.py — Vouching system.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -33,7 +34,7 @@ async def _check_vouch_channel(ctx: commands.Context) -> bool:
     vouch_channel_id = get_vouch_channel(ctx.guild.id)
     if vouch_channel_id is None or ctx.channel.id == vouch_channel_id:
         return True
-    await ctx.send(embed=quick_embed(f"❌ Vouching commands are restricted to <#{vouch_channel_id}> in this server."))
+    await ctx.send(view=quick_card_view(f"❌ Vouching commands are restricted to <#{vouch_channel_id}> in this server."))
     return False
 
 # ----------------- Commands -----------------
@@ -48,17 +49,17 @@ async def vouch_prefix(ctx: commands.Context, member: discord.Member = None, *, 
         return
 
     if member is None:
-        await ctx.send(embed=quick_embed(f"❌ Syntax: `{ctx.prefix}vouch @user [comment]`"))
+        await ctx.send(view=quick_card_view(f"❌ Syntax: `{ctx.prefix}vouch @user [comment]`"))
         return
         
     if not await _check_vouch_channel(ctx):
         return
         
     if member.id == ctx.author.id:
-        await ctx.send(embed=quick_embed("❌ You can't vouch for yourself."))
+        await ctx.send(view=quick_card_view("❌ You can't vouch for yourself."))
         return
     if member.bot:
-        await ctx.send(embed=quick_embed("❌ You can't vouch for a bot."))
+        await ctx.send(view=quick_card_view("❌ You can't vouch for a bot."))
         return
 
     add_vouch(ctx.guild.id, member.id, ctx.author.id, comment)
@@ -71,7 +72,7 @@ async def vouch_prefix(ctx: commands.Context, member: discord.Member = None, *, 
     if comment:
         embed.add_field(name="Comment", value=comment, inline=False)
     embed.set_footer(text=f"{member.display_name} now has {total} vouch(es)")
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 
 @bot.hybrid_command(name="unvouch", description="Remove your most recent vouch for a user")
@@ -79,7 +80,7 @@ async def vouch_prefix(ctx: commands.Context, member: discord.Member = None, *, 
 @app_commands.describe(member="User to remove your vouch from")
 async def unvouch_prefix(ctx: commands.Context, member: discord.Member = None):
     if member is None:
-        await ctx.send(embed=quick_embed(f"❌ Syntax: `{ctx.prefix}unvouch @user`"))
+        await ctx.send(view=quick_card_view(f"❌ Syntax: `{ctx.prefix}unvouch @user`"))
         return
         
     if not await _check_vouch_channel(ctx):
@@ -87,9 +88,9 @@ async def unvouch_prefix(ctx: commands.Context, member: discord.Member = None):
         
     removed = remove_last_vouch(ctx.guild.id, member.id, ctx.author.id)
     if removed:
-        await ctx.send(embed=quick_embed(f"Removed your vouch for {member.mention}."))
+        await ctx.send(view=quick_card_view(f"Removed your vouch for {member.mention}."))
     else:
-        await ctx.send(embed=quick_embed(f"You haven't vouched for {member.mention}."))
+        await ctx.send(view=quick_card_view(f"You haven't vouched for {member.mention}."))
 
 
 @bot.hybrid_command(name="vouches", aliases=["vouchlist"], description="Show vouches for a user")
@@ -119,7 +120,7 @@ async def vouches_prefix(ctx: commands.Context, member: discord.Member = None):
             lines.append(line)
         embed.add_field(name="Recent", value="\n".join(lines), inline=False)
 
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 
 @bot.hybrid_command(name="vouchleaderboard", aliases=["vouchlb"], description="Show the most-vouched users in this server")
@@ -127,7 +128,7 @@ async def vouches_prefix(ctx: commands.Context, member: discord.Member = None):
 async def vouch_leaderboard_prefix(ctx: commands.Context):
     rows = vouch_leaderboard(ctx.guild.id, limit=10)
     if not rows:
-        await ctx.send(embed=quick_embed("No vouches yet in this server."))
+        await ctx.send(view=quick_card_view("No vouches yet in this server."))
         return
         
     lines = []
@@ -141,7 +142,7 @@ async def vouch_leaderboard_prefix(ctx: commands.Context):
         description="\n".join(lines), 
         color=discord.Color.gold()
     )
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 
 # ------------- Configuration -------------
@@ -157,7 +158,7 @@ async def set_vouch_channel_prefix(ctx: commands.Context, channel: discord.TextC
         description=f"✅ Vouch channel successfully set to {channel.mention}.\n\nUsers can now chat normally here to issue auto-vouches, or use manual lookup commands.",
         color=discord.Color.green()
     )
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 
 @bot.hybrid_command(name="clearvouchchannel", aliases=["clearvouch"], description="[Mod] Remove the vouch channel restriction")
@@ -166,6 +167,6 @@ async def set_vouch_channel_prefix(ctx: commands.Context, channel: discord.TextC
 async def clear_vouch_channel_prefix(ctx: commands.Context):
     """Removes the channel restriction so vouch commands work everywhere."""
     clear_vouch_channel(ctx.guild.id)
-    await ctx.send(embed=quick_embed("✅ Vouch channel restriction cleared. Vouch commands will now work across all channels."))
+    await ctx.send(view=quick_card_view("✅ Vouch channel restriction cleared. Vouch commands will now work across all channels."))
 
 

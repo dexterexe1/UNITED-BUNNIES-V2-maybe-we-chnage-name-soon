@@ -1,3 +1,4 @@
+from bot.ui.premium_cards import quick_card_view, style_card_view
 """
 mod_slash.py — /mod slash group, cmdperm-*, custom commands, enable/disable.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -84,19 +85,19 @@ async def mod_help_slash(interaction: discord.Interaction):
     )
     
     embed.set_footer(text="Core Security Verification Required • Commands limited strictly to Authorization Role ID.")
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(view=view)
 
 @mod_group.command(name="setwelcome", description="🎯 Set targeted greeting text channel updates.")
 @has_required_slash_role()
 async def setwelcome_slash(interaction: discord.Interaction, channel: discord.TextChannel):
     set_config(interaction.guild.id, "welcome", channel.id)
-    await interaction.response.send_message(embed=quick_embed(f"🎯 **Welcome channel mapped:** {channel.mention}"))
+    await interaction.response.send_message(view=quick_card_view(f"🎯 **Welcome channel mapped:** {channel.mention}"))
 
 @mod_group.command(name="setlogs", description="🎯 Target channel for message edit/deletion logs.")
 @has_required_slash_role()
 async def setlogs_slash(interaction: discord.Interaction, channel: discord.TextChannel):
     set_config(interaction.guild.id, "logs", channel.id)
-    await interaction.response.send_message(embed=quick_embed(f"🎯 **Log channel mapped:** {channel.mention}"))
+    await interaction.response.send_message(view=quick_card_view(f"🎯 **Log channel mapped:** {channel.mention}"))
 
 @mod_group.command(name="setwelcomemessage", description="👋 Customize the welcome message sent to new members.")
 @has_required_slash_role()
@@ -110,25 +111,25 @@ async def setwelcomemessage_slash(interaction: discord.Interaction, message: str
         color=discord.Color.green(),
     )
     embed.set_footer(text="Placeholders: {user} {username} {server} {membercount}")
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(view=view)
 
 @mod_group.command(name="clearwelcomemessage", description="👋 Reset the welcome message back to the default.")
 @has_required_slash_role()
 async def clearwelcomemessage_slash(interaction: discord.Interaction):
     clear_welcome_message(interaction.guild.id)
-    await interaction.response.send_message(embed=quick_embed("✅ Welcome message reset to the default."))
+    await interaction.response.send_message(view=quick_card_view("✅ Welcome message reset to the default."))
 
 @mod_group.command(name="setlevelchannel", description="📈 Set the channel where level-up announcements are posted.")
 @has_required_slash_role()
 async def setlevelchannel_slash(interaction: discord.Interaction, channel: discord.TextChannel):
     set_levelup_channel(interaction.guild.id, channel.id)
-    await interaction.response.send_message(embed=quick_embed(f"📈 **Level-up announcements will now post in:** {channel.mention}"))
+    await interaction.response.send_message(view=quick_card_view(f"📈 **Level-up announcements will now post in:** {channel.mention}"))
 
 @mod_group.command(name="clearlevelchannel", description="📈 Post level-ups in whichever channel the user leveled up in.")
 @has_required_slash_role()
 async def clearlevelchannel_slash(interaction: discord.Interaction):
     clear_levelup_channel(interaction.guild.id)
-    await interaction.response.send_message(embed=quick_embed("✅ Level-up announcements will post in the channel the member was chatting in."))
+    await interaction.response.send_message(view=quick_card_view("✅ Level-up announcements will post in the channel the member was chatting in."))
 
 @mod_group.command(name="togglelevels", description="📈 Turn the leveling/XP system on or off for this server.")
 @has_required_slash_role()
@@ -136,7 +137,7 @@ async def clearlevelchannel_slash(interaction: discord.Interaction):
 async def togglelevels_slash(interaction: discord.Interaction, enabled: bool):
     set_leveling_enabled(interaction.guild.id, enabled)
     status = "enabled ✅" if enabled else "disabled ❌"
-    await interaction.response.send_message(embed=quick_embed(f"📈 Leveling system is now **{status}** in this server."))
+    await interaction.response.send_message(view=quick_card_view(f"📈 Leveling system is now **{status}** in this server."))
 
 @mod_group.command(name="clear", description="🗑️ Purge text streams from active channels.")
 @has_required_slash_role()
@@ -158,22 +159,22 @@ async def set_noprefix_role_slash(interaction: discord.Interaction, role: discor
 @has_required_slash_role()
 async def clear_noprefix_role_slash(interaction: discord.Interaction):
     clear_trusted_role_id(interaction.guild.id)
-    await interaction.response.send_message(embed=quick_embed("🔒 No-prefix trusted role cleared."))
+    await interaction.response.send_message(view=quick_card_view("🔒 No-prefix trusted role cleared."))
 
 @mod_group.command(name="grantnoprefix", description="🔓 Let a specific user run commands without the ? prefix.")
 @has_required_slash_role()
 async def grant_noprefix_slash(interaction: discord.Interaction, member: discord.Member):
     grant_noprefix(interaction.guild.id, member.id)
-    await interaction.response.send_message(embed=quick_embed(f"🔓 {member.mention} can now use bot commands without the `?` prefix."))
+    await interaction.response.send_message(view=quick_card_view(f"🔓 {member.mention} can now use bot commands without the `?` prefix."))
 
 @mod_group.command(name="revokenoprefix", description="🔒 Remove a user's individual no-prefix permission.")
 @has_required_slash_role()
 async def revoke_noprefix_slash(interaction: discord.Interaction, member: discord.Member):
     removed = revoke_noprefix(interaction.guild.id, member.id)
     if removed:
-        await interaction.response.send_message(embed=quick_embed(f"🔒 {member.mention}'s no-prefix permission was removed."))
+        await interaction.response.send_message(view=quick_card_view(f"🔒 {member.mention}'s no-prefix permission was removed."))
     else:
-        await interaction.response.send_message(embed=quick_embed(f"❗ {member.mention} didn't have an individual no-prefix grant (they may still have it via a role)."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view(f"❗ {member.mention} didn't have an individual no-prefix grant (they may still have it via a role)."), ephemeral=True)
 
 @mod_group.command(name="listnoprefix", description="📋 List users individually granted no-prefix permission.")
 @has_required_slash_role()
@@ -190,7 +191,7 @@ async def list_noprefix_slash(interaction: discord.Interaction):
     if not lines:
         lines.append("No no-prefix role or individual grants configured yet.")
     embed = discord.Embed(title="🔓 No-Prefix Permissions", description="\n\n".join(lines), color=discord.Color.blurple())
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(view=view)
 
 @mod_group.command(name="warn", description="⚠️ Issue a manual warning to a member.")
 @has_required_slash_role()
@@ -201,7 +202,7 @@ async def warn_slash(interaction: discord.Interaction, member: discord.Member, r
         description=f"{member.mention} has been warned by {interaction.user.mention}.\n__**Reason:**__ {reason}\n__**Total warnings:**__ {current}/3",
         color=discord.Color.orange(),
     )
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(view=view)
     if current >= 3:
         reset_warnings(member.id)
         try:
@@ -214,13 +215,13 @@ async def warn_slash(interaction: discord.Interaction, member: discord.Member, r
 @has_required_slash_role()
 async def warnings_slash(interaction: discord.Interaction, member: discord.Member):
     count = get_warnings(member.id)
-    await interaction.response.send_message(embed=quick_embed(f"📋 **{member.display_name}** currently has **{count}/3** warnings."))
+    await interaction.response.send_message(view=quick_card_view(f"📋 **{member.display_name}** currently has **{count}/3** warnings."))
 
 @mod_group.command(name="clearwarnings", description="✅ Reset a member's warning count to zero.")
 @has_required_slash_role()
 async def clearwarnings_slash(interaction: discord.Interaction, member: discord.Member):
     reset_warnings(member.id)
-    await interaction.response.send_message(embed=quick_embed(f"✅ Cleared all warnings for **{member.display_name}**."))
+    await interaction.response.send_message(view=quick_card_view(f"✅ Cleared all warnings for **{member.display_name}**."))
 
 @mod_group.command(name="mute", description="🤫 Timeout a member for a number of minutes.")
 @has_required_slash_role()
@@ -229,14 +230,14 @@ async def mute_slash(interaction: discord.Interaction, member: discord.Member, m
     try:
         await member.timeout(datetime.timedelta(minutes=minutes), reason=f"{reason} (by {interaction.user})")
     except discord.Forbidden:
-        await interaction.response.send_message(embed=quick_embed("❌ I don't have permission to timeout that user."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view("❌ I don't have permission to timeout that user."), ephemeral=True)
         return
     embed = discord.Embed(
         title="🤫 Member Muted",
         description=f"{member.mention} has been muted for **{minutes} minute(s)**.\n__**Reason:**__ {reason}",
         color=discord.Color.orange(),
     )
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(view=view)
 
 @mod_group.command(name="unmute", description="🔊 Remove a member's timeout.")
 @has_required_slash_role()
@@ -244,37 +245,37 @@ async def unmute_slash(interaction: discord.Interaction, member: discord.Member)
     try:
         await member.timeout(None, reason=f"Unmuted by {interaction.user}")
     except discord.Forbidden:
-        await interaction.response.send_message(embed=quick_embed("❌ I don't have permission to unmute that user."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view("❌ I don't have permission to unmute that user."), ephemeral=True)
         return
-    await interaction.response.send_message(embed=quick_embed(f"🔊 **{member.display_name}** has been unmuted."))
+    await interaction.response.send_message(view=quick_card_view(f"🔊 **{member.display_name}** has been unmuted."))
 
 @mod_group.command(name="kick", description="👢 Kick a member from the server.")
 @has_required_slash_role()
 async def kick_slash(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
-        await interaction.response.send_message(embed=quick_embed("❌ You can't kick someone with an equal or higher role than you."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view("❌ You can't kick someone with an equal or higher role than you."), ephemeral=True)
         return
     try:
         await member.kick(reason=f"{reason} (by {interaction.user})")
     except discord.Forbidden:
-        await interaction.response.send_message(embed=quick_embed("❌ I don't have permission to kick that user."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view("❌ I don't have permission to kick that user."), ephemeral=True)
         return
     embed = discord.Embed(title="👢 Member Kicked", description=f"**{member}** was kicked.\n__**Reason:**__ {reason}", color=discord.Color.orange())
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(view=view)
 
 @mod_group.command(name="ban", description="🔨 Ban a member from the server.")
 @has_required_slash_role()
 async def ban_slash(interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
     if member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
-        await interaction.response.send_message(embed=quick_embed("❌ You can't ban someone with an equal or higher role than you."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view("❌ You can't ban someone with an equal or higher role than you."), ephemeral=True)
         return
     try:
         await member.ban(reason=f"{reason} (by {interaction.user})")
     except discord.Forbidden:
-        await interaction.response.send_message(embed=quick_embed("❌ I don't have permission to ban that user."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view("❌ I don't have permission to ban that user."), ephemeral=True)
         return
     embed = discord.Embed(title="🔨 Member Banned", description=f"**{member}** was banned.\n__**Reason:**__ {reason}", color=discord.Color.red())
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(view=view)
 
 @mod_group.command(name="unban", description="✅ Unban a user by ID.")
 @has_required_slash_role()
@@ -284,15 +285,15 @@ async def unban_slash(interaction: discord.Interaction, user_id: str, reason: st
         user = await bot.fetch_user(uid)
         await interaction.guild.unban(user, reason=f"{reason} (by {interaction.user})")
     except ValueError:
-        await interaction.response.send_message(embed=quick_embed("❌ That doesn't look like a valid user ID."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view("❌ That doesn't look like a valid user ID."), ephemeral=True)
         return
     except discord.NotFound:
-        await interaction.response.send_message(embed=quick_embed("❌ That user isn't banned."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view("❌ That user isn't banned."), ephemeral=True)
         return
     except discord.Forbidden:
-        await interaction.response.send_message(embed=quick_embed("❌ I don't have permission to unban."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view("❌ I don't have permission to unban."), ephemeral=True)
         return
-    await interaction.response.send_message(embed=quick_embed(f"✅ Unbanned **{user}**."))
+    await interaction.response.send_message(view=quick_card_view(f"✅ Unbanned **{user}**."))
 
 
 # ==========================================
@@ -308,10 +309,10 @@ async def unban_slash(interaction: discord.Interaction, user_id: str, reason: st
 async def cmdperm_allow_slash(interaction: discord.Interaction, command: str, role: discord.Role):
     command = command.strip().lstrip("?/").lower()
     if bot.get_command(command) is None:
-        await interaction.response.send_message(embed=quick_embed(f"❌ No command named `{command}` exists."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view(f"❌ No command named `{command}` exists."), ephemeral=True)
         return
     add_command_permission(interaction.guild.id, command, role.id)
-    await interaction.response.send_message(embed=quick_embed(f"🔐 `{command}` is now restricted to {role.mention} (and staff)."))
+    await interaction.response.send_message(view=quick_card_view(f"🔐 `{command}` is now restricted to {role.mention} (and staff)."))
 
 @bot.tree.command(name="cmdperm-deny", description="🔐 [Mod] Remove a role's access to a restricted command.")
 @has_required_slash_role()
@@ -320,16 +321,16 @@ async def cmdperm_deny_slash(interaction: discord.Interaction, command: str, rol
     command = command.strip().lstrip("?/").lower()
     removed = remove_command_permission(interaction.guild.id, command, role.id)
     if removed:
-        await interaction.response.send_message(embed=quick_embed(f"🔒 {role.mention} can no longer use `{command}` (unless another allowed role/staff)."))
+        await interaction.response.send_message(view=quick_card_view(f"🔒 {role.mention} can no longer use `{command}` (unless another allowed role/staff)."))
     else:
-        await interaction.response.send_message(embed=quick_embed(f"❗ {role.mention} wasn't specifically allowed for `{command}`."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view(f"❗ {role.mention} wasn't specifically allowed for `{command}`."), ephemeral=True)
 
 @bot.tree.command(name="cmdperm-list", description="🔐 Show which commands are restricted and to whom.")
 @has_required_slash_role()
 async def cmdperm_list_slash(interaction: discord.Interaction):
     perms = list_command_permissions(interaction.guild.id)
     if not perms:
-        await interaction.response.send_message(embed=quick_embed("📋 No commands are currently restricted — everything is open to everyone (plus staff)."))
+        await interaction.response.send_message(view=quick_card_view("📋 No commands are currently restricted — everything is open to everyone (plus staff)."))
         return
     lines = []
     for cmd_name, role_ids in perms.items():
@@ -337,7 +338,7 @@ async def cmdperm_list_slash(interaction: discord.Interaction):
         lines.append(f"**?{cmd_name}** — {mentions}")
     embed = discord.Embed(title="🔐 Restricted Commands", description="\n".join(lines), color=discord.Color.blurple())
     embed.set_footer(text="Staff (the required role) can always use every command.")
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(view=view)
 
 @bot.tree.command(name="cmdperm-reset", description="🔐 [Mod] Clear all role restrictions on a command.")
 @has_required_slash_role()
@@ -346,9 +347,9 @@ async def cmdperm_reset_slash(interaction: discord.Interaction, command: str):
     command = command.strip().lstrip("?/").lower()
     changed = reset_command_permissions(interaction.guild.id, command)
     if changed:
-        await interaction.response.send_message(embed=quick_embed(f"✅ `{command}` is now open to everyone again."))
+        await interaction.response.send_message(view=quick_card_view(f"✅ `{command}` is now open to everyone again."))
     else:
-        await interaction.response.send_message(embed=quick_embed(f"❗ `{command}` had no restrictions to clear."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view(f"❗ `{command}` had no restrictions to clear."), ephemeral=True)
 
 
 # ==========================================
@@ -361,7 +362,7 @@ async def cmdperm_reset_slash(interaction: discord.Interaction, command: str):
 async def new_command_slash(interaction: discord.Interaction, trigger: str, response: str):
     trigger_key = trigger.strip().lower()
     if not trigger_key:
-        await interaction.response.send_message(embed=quick_embed("❌ Trigger can't be empty."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view("❌ Trigger can't be empty."), ephemeral=True)
         return
     add_custom_command(interaction.guild.id, trigger_key, response, interaction.user.id)
     embed = discord.Embed(
@@ -369,7 +370,7 @@ async def new_command_slash(interaction: discord.Interaction, trigger: str, resp
         description=f"When someone types:\n> {trigger}\n\nI'll reply with:\n> {response}",
         color=discord.Color.green(),
     )
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(view=view)
 
 @bot.tree.command(name="delete-command", description="💬 [Mod] Remove a custom auto-responder trigger.")
 @has_required_slash_role()
@@ -377,22 +378,22 @@ async def new_command_slash(interaction: discord.Interaction, trigger: str, resp
 async def delete_command_slash(interaction: discord.Interaction, trigger: str):
     removed = remove_custom_command(interaction.guild.id, trigger.strip().lower())
     if removed:
-        await interaction.response.send_message(embed=quick_embed(f"🗑️ Removed the custom command for `{trigger}`."))
+        await interaction.response.send_message(view=quick_card_view(f"🗑️ Removed the custom command for `{trigger}`."))
     else:
-        await interaction.response.send_message(embed=quick_embed(f"❗ No custom command found for `{trigger}`."), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view(f"❗ No custom command found for `{trigger}`."), ephemeral=True)
 
 @bot.tree.command(name="list-commands", description="💬 List all custom auto-responder triggers in this server.")
 @has_required_slash_role()
 async def list_commands_slash(interaction: discord.Interaction):
     rows = list_custom_commands(interaction.guild.id)
     if not rows:
-        await interaction.response.send_message(embed=quick_embed("📋 No custom commands set up yet. Use `/new-command` to add one."))
+        await interaction.response.send_message(view=quick_card_view("📋 No custom commands set up yet. Use `/new-command` to add one."))
         return
     lines = [f"**{trig}** → {resp}" for trig, resp in rows[:25]]
     embed = discord.Embed(title="💬 Custom Commands", description="\n".join(lines), color=discord.Color.blurple())
     if len(rows) > 25:
         embed.set_footer(text=f"...and {len(rows) - 25} more.")
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(view=view)
 
 
 @bot.hybrid_command(name="disable", description="[Staff] Disable a command/module from Discord")
@@ -401,9 +402,9 @@ async def list_commands_slash(interaction: discord.Interaction):
 async def disable_prefix(ctx, feature: str, type: str = "command"):
     feature = feature.lower()
     if type not in ["command", "module"]:
-        return await ctx.send(embed=quick_embed("❌ Type must be 'command' or 'module'."))
+        return await ctx.send(view=quick_card_view("❌ Type must be 'command' or 'module'."))
     await disable_feature(ctx.guild.id, feature, type)
-    await ctx.send(embed=quick_embed(f"🔒 **{feature}** ({type}) has been disabled for this server."))
+    await ctx.send(view=quick_card_view(f"🔒 **{feature}** ({type}) has been disabled for this server."))
 
 @bot.hybrid_command(name="enable", description="[Staff] Enable a command/module from Discord")
 @commands.has_role(REQUIRED_ROLE_ID)
@@ -411,6 +412,6 @@ async def disable_prefix(ctx, feature: str, type: str = "command"):
 async def enable_prefix(ctx, feature: str, type: str = "command"):
     feature = feature.lower()
     if type not in ["command", "module"]:
-        return await ctx.send(embed=quick_embed("❌ Type must be 'command' or 'module'."))
+        return await ctx.send(view=quick_card_view("❌ Type must be 'command' or 'module'."))
     await enable_feature(ctx.guild.id, feature, type)
-    await ctx.send(embed=quick_embed(f"✅ **{feature}** ({type}) has been enabled for this server."))
+    await ctx.send(view=quick_card_view(f"✅ **{feature}** ({type}) has been enabled for this server."))

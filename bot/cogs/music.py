@@ -1,3 +1,4 @@
+from bot.ui.premium_cards import quick_card_view, style_card_view
 """
 music.py — Music engine (play, queue, volume, loop, playlist).
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -55,7 +56,7 @@ def play_next_in_queue(ctx):
         if next_track["thumbnail"]:
             embed.set_thumbnail(url=next_track["thumbnail"])
         embed.set_footer(text="Enjoy the stream session matrix 🔊")
-        bot.loop.create_task(ctx.send(embed=embed))
+        bot.loop.create_task(ctx.send(view=view))
     else:
         now_playing.pop(guild_id, None)
         bot.loop.create_task(ctx.send("🏁 **Queue completed.** The audio stream has finished."))
@@ -64,14 +65,14 @@ def play_next_in_queue(ctx):
 @app_commands.describe(search_or_url="Song name, search term, or a direct URL")
 async def play_audio_command(ctx, *, search_or_url: str = None):
     if not ctx.author.voice:
-        await ctx.send(embed=quick_embed("❌ You must join a voice channel first!"))
+        await ctx.send(view=quick_card_view("❌ You must join a voice channel first!"))
         return
 
     if search_or_url is None and ctx.message and ctx.message.attachments:
         search_or_url = ctx.message.attachments[0].url
 
     if not search_or_url:
-        await ctx.send(embed=quick_embed("❌ Provide a track name or URL! Syntax: `?play <song title or link>`"))
+        await ctx.send(view=quick_card_view("❌ Provide a track name or URL! Syntax: `?play <song title or link>`"))
         return
 
     vc = ctx.voice_client
@@ -105,7 +106,7 @@ async def play_audio_command(ctx, *, search_or_url: str = None):
                         info = info['entries'][0]
                     stream_url = info['url']
             except Exception as e:
-                await ctx.send(embed=quick_embed(f"❌ Failed to parse media details from all engine paths: {e}"))
+                await ctx.send(view=quick_card_view(f"❌ Failed to parse media details from all engine paths: {e}"))
                 return
 
         song_title = info.get('title', 'Unknown Track') if info else 'Unknown Track'
@@ -143,7 +144,7 @@ async def play_audio_command(ctx, *, search_or_url: str = None):
         if thumbnail:
             embed.set_thumbnail(url=thumbnail)
         embed.set_footer(text="Not the correct track? Try being more specific.")
-        await ctx.send(embed=embed)
+        await ctx.send(view=view)
     else:
         now_playing[guild_id] = track_data
         volume = song_volumes.get(guild_id, 1.0)
@@ -160,15 +161,15 @@ async def play_audio_command(ctx, *, search_or_url: str = None):
         )
         if thumbnail:
             embed.set_thumbnail(url=thumbnail)
-        await ctx.send(embed=embed)
+        await ctx.send(view=view)
 @bot.hybrid_command(name="skip", aliases=["s", "next"], description="Skip the current track")
 async def skip_audio_command(ctx):
     vc = ctx.voice_client
     if vc and vc.is_playing():
         vc.stop()
-        await ctx.send(embed=quick_embed("⏭️ **Track skipped.** Loading next active layout..."))
+        await ctx.send(view=quick_card_view("⏭️ **Track skipped.** Loading next active layout..."))
     else:
-        await ctx.send(embed=quick_embed("❌ No active music streaming tracks detected."))
+        await ctx.send(view=quick_card_view("❌ No active music streaming tracks detected."))
 
 @bot.hybrid_command(name="stop", aliases=["end"], description="Stop playback and clear the queue")
 async def stop_audio_command(ctx):
@@ -180,7 +181,7 @@ async def stop_audio_command(ctx):
     vc = ctx.voice_client
     if vc and vc.is_playing():
         vc.stop()
-    await ctx.send(embed=quick_embed("⏹️ **Playback halted.** Core audio queues flushed completely."))
+    await ctx.send(view=quick_card_view("⏹️ **Playback halted.** Core audio queues flushed completely."))
 
 @bot.hybrid_command(name="leave", aliases=["dc", "disconnect"], description="Disconnect the bot from voice")
 async def leave_voice_command(ctx):
@@ -190,9 +191,9 @@ async def leave_voice_command(ctx):
         song_queues.pop(guild_id, None)
         now_playing.pop(guild_id, None)
         await vc.disconnect()
-        await ctx.send(embed=quick_embed("👋 **Disconnected successfully** from local voice rooms."))
+        await ctx.send(view=quick_card_view("👋 **Disconnected successfully** from local voice rooms."))
     else:
-        await ctx.send(embed=quick_embed("❌ I am not connected to any voice rooms."))
+        await ctx.send(view=quick_card_view("❌ I am not connected to any voice rooms."))
 
 @bot.hybrid_command(name="queue", aliases=["q"], description="Show the current music queue")
 async def queue_command(ctx):
@@ -201,7 +202,7 @@ async def queue_command(ctx):
     current = now_playing.get(guild_id)
 
     if not current and not queue:
-        await ctx.send(embed=quick_embed("📭 Nothing is playing and the queue is empty."))
+        await ctx.send(view=quick_card_view("📭 Nothing is playing and the queue is empty."))
         return
 
     embed = discord.Embed(title="🎶 Music Queue", color=0x2f3136)
@@ -218,13 +219,13 @@ async def queue_command(ctx):
             embed.set_footer(text=f"...and {len(queue) - 10} more track(s) queued.")
     else:
         embed.add_field(name="⏭️ Up Next", value="Queue is empty.", inline=False)
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 @bot.hybrid_command(name="nowplaying", aliases=["np"], description="Show what's currently playing")
 async def nowplaying_command(ctx):
     current = now_playing.get(ctx.guild.id)
     if not current:
-        await ctx.send(embed=quick_embed("❌ Nothing is currently playing."))
+        await ctx.send(view=quick_card_view("❌ Nothing is currently playing."))
         return
 
     embed = discord.Embed(
@@ -237,7 +238,7 @@ async def nowplaying_command(ctx):
     vol = int(song_volumes.get(ctx.guild.id, 1.0) * 100)
     mode = loop_modes.get(ctx.guild.id, "off")
     embed.set_footer(text=f"🔊 Volume: {vol}%  •  🔁 Loop: {mode}")
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 @bot.hybrid_command(name="volume", aliases=["vol"], description="Get or set the playback volume")
 @app_commands.describe(percent="Volume percentage (0-200)")
@@ -245,7 +246,7 @@ async def volume_command(ctx, percent: int = None):
     guild_id = ctx.guild.id
     if percent is None:
         current_vol = int(song_volumes.get(guild_id, 1.0) * 100)
-        await ctx.send(embed=quick_embed(f"🔊 Current volume: **{current_vol}%**. Usage: `?volume <0-200>`"))
+        await ctx.send(view=quick_card_view(f"🔊 Current volume: **{current_vol}%**. Usage: `?volume <0-200>`"))
         return
 
     percent = max(0, min(200, percent))
@@ -255,7 +256,7 @@ async def volume_command(ctx, percent: int = None):
     if vc and vc.source and isinstance(vc.source, discord.PCMVolumeTransformer):
         vc.source.volume = percent / 100
 
-    await ctx.send(embed=quick_embed(f"🔊 Volume set to **{percent}%**."))
+    await ctx.send(view=quick_card_view(f"🔊 Volume set to **{percent}%**."))
 
 @bot.hybrid_command(name="loop", description="Set the loop mode (off, track, or queue)")
 @app_commands.describe(mode="off, track, or queue")
@@ -264,11 +265,11 @@ async def loop_command(ctx, mode: str = None):
     valid_modes = ["off", "track", "queue"]
     if mode is None or mode.lower() not in valid_modes:
         current_mode = loop_modes.get(guild_id, "off")
-        await ctx.send(embed=quick_embed(f"🔁 Usage: `?loop <off|track|queue>`. Current mode: **{current_mode}**"))
+        await ctx.send(view=quick_card_view(f"🔁 Usage: `?loop <off|track|queue>`. Current mode: **{current_mode}**"))
         return
 
     loop_modes[guild_id] = mode.lower()
-    await ctx.send(embed=quick_embed(f"🔁 Loop mode set to **{mode.lower()}**."))
+    await ctx.send(view=quick_card_view(f"🔁 Loop mode set to **{mode.lower()}**."))
 
 @bot.hybrid_command(name="like", description="Save a song link to your personal playlist")
 @app_commands.describe(song_url="Link to the track", title="Title to save it under")
@@ -277,23 +278,23 @@ async def like_song_command(ctx, song_url: str = None, *, title: str = "Saved Tr
         song_url = ctx.message.attachments[0].url
 
     if not song_url:
-        await ctx.send(embed=quick_embed("❌ Specify a link or attach a track file to save! Syntax: `?like <url> [title]`"))
+        await ctx.send(view=quick_card_view("❌ Specify a link or attach a track file to save! Syntax: `?like <url> [title]`"))
         return
 
     add_liked_song(ctx.author.id, title, song_url)
-    await ctx.send(embed=quick_embed(f"❤️ **Track Saved!** Added **'{title}'** directly to your personal Database Playlist."))
+    await ctx.send(view=quick_card_view(f"❤️ **Track Saved!** Added **'{title}'** directly to your personal Database Playlist."))
 
 @bot.hybrid_command(name="playlist", description="View, play, or clear your saved playlist")
 @app_commands.describe(action="view, play, or clear")
 async def view_or_play_playlist(ctx, action: str = "view"):
     songs = get_liked_songs(ctx.author.id)
     if not songs:
-        await ctx.send(embed=quick_embed("💔 Your private Liked Playlist is empty! Log songs using `?like <url>` first."))
+        await ctx.send(view=quick_card_view("💔 Your private Liked Playlist is empty! Log songs using `?like <url>` first."))
         return
 
     if action.lower() == "play":
         if not ctx.author.voice:
-            await ctx.send(embed=quick_embed("❌ You must join a voice channel first!"))
+            await ctx.send(view=quick_card_view("❌ You must join a voice channel first!"))
             return
         vc = ctx.voice_client
         if not vc: vc = await ctx.author.voice.channel.connect()
@@ -304,18 +305,18 @@ async def view_or_play_playlist(ctx, action: str = "view"):
         for title, url in songs:
             song_queues[guild_id].append({"url": url, "title": title, "duration": "Saved Track", "thumbnail": None, "ctx": ctx})
 
-        await ctx.send(embed=quick_embed(f"📦 Loaded **{len(songs)} tracks** out of your playlist directly into active queues!"))
+        await ctx.send(view=quick_card_view(f"📦 Loaded **{len(songs)} tracks** out of your playlist directly into active queues!"))
         if not vc.is_playing():
             play_next_in_queue(ctx)
     elif action.lower() == "clear":
         clear_liked_songs(ctx.author.id)
-        await ctx.send(embed=quick_embed("🗑️ Your Liked Playlist ledger has been wiped out completely."))
+        await ctx.send(view=quick_card_view("🗑️ Your Liked Playlist ledger has been wiped out completely."))
     else:
         embed = discord.Embed(title=f"❤️ {ctx.author.display_name}'s Private Playlist Ledger", color=discord.Color.magenta())
         description_text = ""
         for i, (title, url) in enumerate(songs, 1):
             description_text += f"**{i}. {title}**\n🔗 [Stream Track]({url})\n\n"
         embed.description = description_text
-        await ctx.send(embed=embed)
+        await ctx.send(view=view)
 
 

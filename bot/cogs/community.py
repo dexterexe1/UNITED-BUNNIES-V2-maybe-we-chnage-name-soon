@@ -1,3 +1,4 @@
+from bot.ui.premium_cards import quick_card_view, style_card_view
 """
 community.py — Help menu, control panel, setup dropdowns, announcements, leveling cmds, dashboard links, no-prefix helpers.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -63,7 +64,7 @@ class NoPrefixModConfirmView(discord.ui.View):
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger, emoji="✅")
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.author.id:
-            await interaction.response.send_message(embed=quick_embed("❌ Only the person who typed this command can confirm it."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ Only the person who typed this command can confirm it."), ephemeral=True)
             return
         for item in self.children:
             item.disabled = True
@@ -74,7 +75,7 @@ class NoPrefixModConfirmView(discord.ui.View):
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="✖️")
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.author.id:
-            await interaction.response.send_message(embed=quick_embed("❌ Only the person who typed this command can cancel it."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ Only the person who typed this command can cancel it."), ephemeral=True)
             return
         for item in self.children:
             item.disabled = True
@@ -105,7 +106,7 @@ def make_progress_bar(current: int, needed: int, length: int = 15) -> str:
 @app_commands.describe(member="User to check (defaults to yourself)")
 async def rank_prefix(ctx, member: discord.Member = None):
     if not LEVELING_SYSTEM_ENABLED:
-        await ctx.send(embed=style_embed(
+        await ctx.send(view=style_card_view(
             "Leveling Disabled",
             kind="info",
             description=f"{EMOJI_BULLET} Built-in leveling is turned off.\n{EMOJI_BULLET} Use a dedicated leveling bot if you need XP ranks.",
@@ -124,12 +125,12 @@ async def rank_prefix(ctx, member: discord.Member = None):
     embed.add_field(name="Level", value=str(level), inline=True)
     embed.add_field(name="Total XP", value=str(xp), inline=True)
     embed.add_field(name="Progress to Next Level", value=f"`{bar}` {progress}/{span} XP", inline=False)
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 @bot.hybrid_command(name="levelleaderboard", aliases=["levellb", "ranklb", "ll", "levels"], description="Show the top XP earners in this server")
 async def level_leaderboard_prefix(ctx):
     if not LEVELING_SYSTEM_ENABLED:
-        await ctx.send(embed=style_embed(
+        await ctx.send(view=style_card_view(
             "Leveling Disabled",
             kind="info",
             description=f"{EMOJI_BULLET} Built-in leveling is turned off.\n{EMOJI_BULLET} Use a dedicated leveling bot if you need XP ranks.",
@@ -137,7 +138,7 @@ async def level_leaderboard_prefix(ctx):
         return
     rows = level_leaderboard(ctx.guild.id, limit=10)
     if not rows:
-        await ctx.send(embed=quick_embed("No one has earned XP in this server yet."))
+        await ctx.send(view=quick_card_view("No one has earned XP in this server yet."))
         return
     lines = []
     for i, (user_id, xp, level) in enumerate(rows, start=1):
@@ -145,7 +146,7 @@ async def level_leaderboard_prefix(ctx):
         name = member.mention if member else f"<@{user_id}>"
         lines.append(f"**{i}.** {name} — Level {level} ({xp} XP)")
     embed = discord.Embed(title="📈 Level Leaderboard", description="\n".join(lines), color=discord.Color.blurple())
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 
 
@@ -252,19 +253,19 @@ class VouchModal(discord.ui.Modal, title="Vouch for a Member"):
         raw = self.user_input.value.strip()
         match = re.search(r"\d{15,25}", raw)
         if not match:
-            await interaction.response.send_message(embed=quick_embed("❌ Couldn't find a valid user ID or mention in that."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ Couldn't find a valid user ID or mention in that."), ephemeral=True)
             return
 
         target_id = int(match.group())
         target = interaction.guild.get_member(target_id)
         if target is None:
-            await interaction.response.send_message(embed=quick_embed("❌ Couldn't find that member in this server."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ Couldn't find that member in this server."), ephemeral=True)
             return
         if target.id == interaction.user.id:
-            await interaction.response.send_message(embed=quick_embed("❌ You can't vouch for yourself."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ You can't vouch for yourself."), ephemeral=True)
             return
         if target.bot:
-            await interaction.response.send_message(embed=quick_embed("❌ You can't vouch for a bot."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ You can't vouch for a bot."), ephemeral=True)
             return
 
         comment = self.comment_input.value.strip() or None
@@ -278,7 +279,7 @@ class VouchModal(discord.ui.Modal, title="Vouch for a Member"):
         if comment:
             embed.add_field(name="Comment", value=comment, inline=False)
         embed.set_footer(text=f"{target.display_name} now has {total} vouch(es)")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(view=view)
 
 
 # --- SETUP DROPDOWNS ---
@@ -505,11 +506,11 @@ async def afk_prefix(ctx, *, reason: str = "AFK"):
     afk_users[ctx.author.id] = {"reason": reason, "timestamp": datetime.datetime.now(), "old_name": ctx.author.nick}
     try: await ctx.author.edit(nick=f"[AFK] {ctx.author.display_name[:25]}")
     except Exception: pass
-    await ctx.send(embed=quick_embed(f"💤 {ctx.author.mention} is now AFK."))
+    await ctx.send(view=quick_card_view(f"💤 {ctx.author.mention} is now AFK."))
 
 @bot.hybrid_command(name="ping", description="Check the bot's latency")
 async def ping_prefix(ctx):
-    await ctx.send(embed=style_embed(
+    await ctx.send(view=style_card_view(
         "Ping",
         kind="info",
         description=f"{EMOJI_BULLET} latency: **{round(bot.latency * 1000)}ms**",
@@ -520,21 +521,21 @@ async def send_gif_embed(channel, query: str, title: str = None):
     gif_url = await loop.run_in_executor(None, fetch_giphy_gif_url, query)
     if not gif_url:
         if not GIPHY_API_KEY:
-            await channel.send(embed=quick_embed("❌ GIPHY_API_KEY is missing on the server."))
+            await channel.send(view=quick_card_view("❌ GIPHY_API_KEY is missing on the server."))
         else:
-            await channel.send(embed=quick_embed("❌ No GIF found. Try different keywords."))
+            await channel.send(view=quick_card_view("❌ No GIF found. Try different keywords."))
         return
     embed = discord.Embed(color=0x2f3136, timestamp=datetime.datetime.now(UTC))
     if title:
         embed.title = title
     embed.set_image(url=gif_url)
-    await channel.send(embed=embed)
+    await channel.send(view=view)
 
 @bot.hybrid_command(name="gif", description="Send a random GIF for a keyword")
 @app_commands.describe(query="Search keywords")
 async def gif_prefix(ctx, *, query: str = None):
     if not query:
-        await ctx.send(embed=quick_embed("❌ Syntax: `?gif <search keywords>`"))
+        await ctx.send(view=quick_card_view("❌ Syntax: `?gif <search keywords>`"))
         return
     async with ctx.typing():
         await send_gif_embed(ctx.channel, query, title=f"GIF: {query}")
@@ -601,30 +602,30 @@ async def blush_prefix(ctx, member: discord.Member = None):
 async def roll_prefix(ctx, sides: int = 6):
     sides = max(2, min(1000, sides))
     result = random.randint(1, sides)
-    await ctx.send(embed=quick_embed(f"🎲 You rolled a **{result}** (1-{sides})"))
+    await ctx.send(view=quick_card_view(f"🎲 You rolled a **{result}** (1-{sides})"))
 
 @bot.hybrid_command(name="coinflip", aliases=["flip"], description="Flip a coin")
 async def coinflip_prefix(ctx):
     result = random.choice(["Heads", "Tails"])
-    await ctx.send(embed=quick_embed(f"🪙 **{result}!**"))
+    await ctx.send(view=quick_card_view(f"🪙 **{result}!**"))
 
 @bot.hybrid_command(name="choose", description="Pick randomly between options")
 @app_commands.describe(options="Options separated by | (e.g. a | b | c)")
 async def choose_prefix(ctx, *, options: str = None):
     if not options or "|" not in options:
-        await ctx.send(embed=quick_embed("❌ Syntax: `?choose option1 | option2 | option3`"))
+        await ctx.send(view=quick_card_view("❌ Syntax: `?choose option1 | option2 | option3`"))
         return
     choices = [o.strip() for o in options.split("|") if o.strip()]
     if len(choices) < 2:
-        await ctx.send(embed=quick_embed("❌ Give me at least two options, separated by `|`."))
+        await ctx.send(view=quick_card_view("❌ Give me at least two options, separated by `|`."))
         return
-    await ctx.send(embed=quick_embed(f"🤔 I choose: **{random.choice(choices)}**"))
+    await ctx.send(view=quick_card_view(f"🤔 I choose: **{random.choice(choices)}**"))
 
 @bot.hybrid_command(name="8ball", description="Ask the magic 8-ball a question")
 @app_commands.describe(question="Your question")
 async def eightball_prefix(ctx, *, question: str = None):
     if not question:
-        await ctx.send(embed=quick_embed("❌ Syntax: `?8ball <question>`"))
+        await ctx.send(view=quick_card_view("❌ Syntax: `?8ball <question>`"))
         return
     answers = [
         "Yes.",
@@ -636,7 +637,7 @@ async def eightball_prefix(ctx, *, question: str = None):
         "It is certain.",
         "Very doubtful.",
     ]
-    await ctx.send(embed=quick_embed(f"🎱 {random.choice(answers)}"))
+    await ctx.send(view=quick_card_view(f"🎱 {random.choice(answers)}"))
 
 @bot.hybrid_command(name="avatar", description="Get a user's avatar")
 @app_commands.describe(member="User to check (defaults to yourself)")
@@ -644,7 +645,7 @@ async def avatar_prefix(ctx, member: discord.Member = None):
     member = member or ctx.author
     embed = discord.Embed(title=f"{member.display_name}'s Avatar", color=0x2f3136)
     embed.set_image(url=member.display_avatar.url)
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 @bot.hybrid_command(name="userinfo", description="Get info about a user")
 @app_commands.describe(member="User to check (defaults to yourself)")
@@ -657,7 +658,7 @@ async def userinfo_prefix(ctx, member: discord.Member = None):
     embed.add_field(name="Account Created", value=discord.utils.format_dt(member.created_at, style="F"), inline=False)
     if member.joined_at:
         embed.add_field(name="Joined Server", value=discord.utils.format_dt(member.joined_at, style="F"), inline=False)
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 @bot.hybrid_command(name="serverinfo", description="Get info about this server")
 async def serverinfo_prefix(ctx):
@@ -670,7 +671,7 @@ async def serverinfo_prefix(ctx):
     embed.add_field(name="Created", value=discord.utils.format_dt(g.created_at, style="F"), inline=False)
     embed.add_field(name="Members", value=str(g.member_count), inline=True)
     embed.add_field(name="Channels", value=str(len(g.channels)), inline=True)
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 @bot.hybrid_command(name="meme", description="Get a random meme")
 async def meme_prefix(ctx):
@@ -685,26 +686,26 @@ async def meme_prefix(ctx):
             meme_url = None
             title = None
     if not meme_url:
-        await ctx.send(embed=quick_embed("❌ Meme fetch failed. Try again."))
+        await ctx.send(view=quick_card_view("❌ Meme fetch failed. Try again."))
         return
     embed = discord.Embed(title=title, color=0x2f3136)
     embed.set_image(url=meme_url)
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
     if isinstance(error, commands.MissingRole) or isinstance(error, commands.MissingPermissions):
-        await ctx.send(embed=quick_embed("❌ You don't have permission to use that command."), delete_after=6)
+        await ctx.send(view=quick_card_view("❌ You don't have permission to use that command."), delete_after=6)
         return
     if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(embed=quick_embed("❌ Missing arguments. Use `?help` for usage."), delete_after=6)
+        await ctx.send(view=quick_card_view("❌ Missing arguments. Use `?help` for usage."), delete_after=6)
         return
     if isinstance(error, commands.CheckFailure):
         await ctx.send(str(error) or "❌ You don't have permission to use that command.", delete_after=6)
         return
-    await ctx.send(embed=quick_embed(f"❌ Error: {error}"), delete_after=8)
+    await ctx.send(view=quick_card_view(f"❌ Error: {error}"), delete_after=8)
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
@@ -712,11 +713,11 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         if interaction.response.is_done():
             await interaction.followup.send("❌ You don't have permission to use that command.", ephemeral=True)
         else:
-            await interaction.response.send_message(embed=quick_embed("❌ You don't have permission to use that command."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ You don't have permission to use that command."), ephemeral=True)
         return
     if interaction.response.is_done():
         await interaction.followup.send(f"❌ Error: {error}", ephemeral=True)
     else:
-        await interaction.response.send_message(embed=quick_embed(f"❌ Error: {error}"), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view(f"❌ Error: {error}"), ephemeral=True)
 
 

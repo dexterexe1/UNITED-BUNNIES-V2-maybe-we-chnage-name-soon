@@ -1,3 +1,4 @@
+from bot.ui.premium_cards import quick_card_view, style_card_view
 """
 events.py — Bot lifecycle and message/member event handlers.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -164,7 +165,7 @@ async def on_member_join(member):
                         embed.set_thumbnail(url=join_cfg["thumbnailUrl"])
                     if join_cfg.get("footer"):
                         embed.set_footer(text=join_cfg["footer"])
-                    await channel.send(embed=embed)
+                    await channel.send(view=view)
                 else:
                     await channel.send(text)
                 return
@@ -225,7 +226,7 @@ async def on_message_delete(message):
             embed.add_field(name="Author Profile", value=f"{message.author.mention} (`{message.author.id}`)", inline=True)
             embed.add_field(name="Location Stream", value=message.channel.mention, inline=True)
             embed.add_field(name="Deleted Payload Content", value=message.content or "*No text payload (image/embed)*", inline=False)
-            await channel.send(embed=embed)
+            await channel.send(view=view)
 
 @bot.event
 async def on_message_edit(before, after):
@@ -239,7 +240,7 @@ async def on_message_edit(before, after):
             embed.add_field(name="Location Stream", value=before.channel.mention, inline=True)
             embed.add_field(name="Original Payload", value=before.content, inline=False)
             embed.add_field(name="Edited Revision Payload", value=after.content, inline=False)
-            await channel.send(embed=embed)
+            await channel.send(view=view)
 
 # ==========================================
 #         ✅ VOUCH AUTO-DETECT (pattern only; commands live in cogs/vouch.py)
@@ -289,7 +290,7 @@ class NoPrefixModConfirmView(discord.ui.View):
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger, emoji="✅")
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.author.id:
-            await interaction.response.send_message(embed=quick_embed("❌ Only the person who typed this command can confirm it."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ Only the person who typed this command can confirm it."), ephemeral=True)
             return
         for item in self.children:
             item.disabled = True
@@ -300,7 +301,7 @@ class NoPrefixModConfirmView(discord.ui.View):
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="✖️")
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.author.id:
-            await interaction.response.send_message(embed=quick_embed("❌ Only the person who typed this command can cancel it."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ Only the person who typed this command can cancel it."), ephemeral=True)
             return
         for item in self.children:
             item.disabled = True
@@ -412,7 +413,7 @@ async def on_message(message):
         data = afk_users.pop(message.author.id)
         try: await message.author.edit(nick=data["old_name"])
         except Exception: pass
-        await message.channel.send(embed=quick_embed(f"👋 Welcome back {message.author.mention}! Your AFK status has been cleared."), delete_after=5)
+        await message.channel.send(view=quick_card_view(f"👋 Welcome back {message.author.mention}! Your AFK status has been cleared."), delete_after=5)
 
     for mention in message.mentions:
         if mention.id in afk_users:
@@ -479,7 +480,7 @@ async def on_message(message):
             except Exception:
                 pass
         elif dash_cmd.get("replyType") == "embed":
-            await message.channel.send(embed=quick_embed(text))
+            await message.channel.send(view=quick_card_view(text))
         else:
             await message.channel.send(text)
         await mongo_bridge.bump_uses("customCommands", dash_cmd.get("_id"))
@@ -557,7 +558,7 @@ async def on_message(message):
             color=discord.Color.orange(),
         )
         try:
-            await channel.send(embed=embed)
+            await channel.send(view=view)
         except Exception:
             pass
 
@@ -574,27 +575,27 @@ async def on_message(message):
                 reset_warnings(author_id)
                 try:
                     await message.author.timeout(datetime.timedelta(minutes=10), reason="AutoMod Violation Threshold")
-                    await message.channel.send(embed=quick_embed(f"🤫 **{message.author.display_name}** has been auto-timed out for 10 minutes after receiving 3 warnings."))
+                    await message.channel.send(view=quick_card_view(f"🤫 **{message.author.display_name}** has been auto-timed out for 10 minutes after receiving 3 warnings."))
                 except Exception:
                     pass
             else:
-                await message.channel.send(embed=quick_embed(f"⚠️ **{message.author.display_name}**, your message was removed for **{reason_text}**. ({current_warns}/3)"), delete_after=6)
+                await message.channel.send(view=quick_card_view(f"⚠️ **{message.author.display_name}**, your message was removed for **{reason_text}**. ({current_warns}/3)"), delete_after=6)
         elif action == "mute":
             try:
                 await message.author.timeout(datetime.timedelta(minutes=duration_minutes), reason=f"AutoMod: {reason_text}")
-                await message.channel.send(embed=quick_embed(f"🔇 **{message.author.display_name}** was muted for {duration_minutes}m — {reason_text}."), delete_after=8)
+                await message.channel.send(view=quick_card_view(f"🔇 **{message.author.display_name}** was muted for {duration_minutes}m — {reason_text}."), delete_after=8)
             except Exception:
                 pass
         elif action == "kick":
             try:
                 await message.author.kick(reason=f"AutoMod: {reason_text}")
-                await message.channel.send(embed=quick_embed(f"👢 **{message.author.display_name}** was kicked — {reason_text}."), delete_after=8)
+                await message.channel.send(view=quick_card_view(f"👢 **{message.author.display_name}** was kicked — {reason_text}."), delete_after=8)
             except Exception:
                 pass
         elif action == "ban":
             try:
                 await message.author.ban(reason=f"AutoMod: {reason_text}")
-                await message.channel.send(embed=quick_embed(f"🔨 **{message.author.display_name}** was banned — {reason_text}."), delete_after=8)
+                await message.channel.send(view=quick_card_view(f"🔨 **{message.author.display_name}** was banned — {reason_text}."), delete_after=8)
             except Exception:
                 pass
         # action == "delete" falls through — message is already gone above.

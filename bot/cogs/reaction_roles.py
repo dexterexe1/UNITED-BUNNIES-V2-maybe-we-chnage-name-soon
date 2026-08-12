@@ -1,3 +1,4 @@
+from bot.ui.premium_cards import quick_card_view, style_card_view
 """
 reaction_roles.py — Reaction role panels and role menus.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -44,7 +45,7 @@ async def _post_reaction_panel(guild: discord.Guild, panel: dict):
         color=discord.Color.blurple(),
     )
     try:
-        message = await channel.send(embed=embed)
+        message = await channel.send(view=view)
         for m in mappings:
             try:
                 await message.add_reaction(m["emoji"])
@@ -174,13 +175,13 @@ async def reaction_role_command(ctx, message_id: str, emoji: str, role: discord.
     try:
         message_id = int(message_id)
     except ValueError:
-        await ctx.send(embed=quick_embed("❌ That doesn't look like a valid message ID."))
+        await ctx.send(view=quick_card_view("❌ That doesn't look like a valid message ID."))
         return
 
     try:
         target_message = await ctx.channel.fetch_message(message_id)
     except discord.NotFound:
-        await ctx.send(embed=quick_embed("❌ Couldn't find that message in this channel. Run this command in the same channel as the message."))
+        await ctx.send(view=quick_card_view("❌ Couldn't find that message in this channel. Run this command in the same channel as the message."))
         return
 
     custom_emoji_match = re.match(r"<a?:\w+:(\d+)>", emoji)
@@ -188,15 +189,15 @@ async def reaction_role_command(ctx, message_id: str, emoji: str, role: discord.
 
     if role is None:
         remove_reaction_role(message_id, key)
-        await ctx.send(embed=quick_embed(f"✅ Removed reaction role binding for {emoji} on that message."))
+        await ctx.send(view=quick_card_view(f"✅ Removed reaction role binding for {emoji} on that message."))
         return
 
     add_reaction_role(ctx.guild.id, message_id, key, role.id)
     try:
         await target_message.add_reaction(emoji)
     except discord.HTTPException:
-        await ctx.send(embed=quick_embed(f"⚠️ Binding saved, but I couldn't react with {emoji} myself — add it manually so people have something to click."))
+        await ctx.send(view=quick_card_view(f"⚠️ Binding saved, but I couldn't react with {emoji} myself — add it manually so people have something to click."))
         return
-    await ctx.send(embed=quick_embed(f"✅ {emoji} on that message now grants {role.mention}."))
+    await ctx.send(view=quick_card_view(f"✅ {emoji} on that message now grants {role.mention}."))
 
 

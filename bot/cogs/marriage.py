@@ -1,3 +1,4 @@
+from bot.ui.premium_cards import quick_card_view, style_card_view
 """
 marriage.py — Marriage / proposal system.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -36,7 +37,7 @@ class MarriageProposalView(discord.ui.View):
     @discord.ui.button(label="Accept 💍", style=discord.ButtonStyle.success)
     async def accept_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.target.id:
-            await interaction.response.send_message(embed=quick_embed("❌ This proposal isn't addressed to you."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ This proposal isn't addressed to you."), ephemeral=True)
             return
         if self.responded:
             return
@@ -69,7 +70,7 @@ class MarriageProposalView(discord.ui.View):
     @discord.ui.button(label="Decline 💔", style=discord.ButtonStyle.danger)
     async def decline_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.target.id:
-            await interaction.response.send_message(embed=quick_embed("❌ This proposal isn't addressed to you."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ This proposal isn't addressed to you."), ephemeral=True)
             return
         if self.responded:
             return
@@ -109,7 +110,7 @@ class DivorceConfirmView(discord.ui.View):
     @discord.ui.button(label="Confirm Divorce 💔", style=discord.ButtonStyle.danger)
     async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.partner.id:
-            await interaction.response.send_message(embed=quick_embed("❌ Only your partner can confirm this."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ Only your partner can confirm this."), ephemeral=True)
             return
         if self.responded:
             return
@@ -127,7 +128,7 @@ class DivorceConfirmView(discord.ui.View):
     @discord.ui.button(label="Deny", style=discord.ButtonStyle.secondary)
     async def deny_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.partner.id:
-            await interaction.response.send_message(embed=quick_embed("❌ Only your partner can respond to this."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ Only your partner can respond to this."), ephemeral=True)
             return
         if self.responded:
             return
@@ -146,17 +147,17 @@ class DivorceConfirmView(discord.ui.View):
 @app_commands.describe(member="Who you want to propose to")
 async def marry_prefix(ctx, member: discord.Member = None):
     if member is None:
-        await ctx.send(embed=quick_embed("❌ Syntax: `?marry @user`"))
+        await ctx.send(view=quick_card_view("❌ Syntax: `?marry @user`"))
         return
     if member.id == ctx.author.id:
-        await ctx.send(embed=quick_embed("❌ You can't marry yourself."))
+        await ctx.send(view=quick_card_view("❌ You can't marry yourself."))
         return
     if member.bot:
-        await ctx.send(embed=quick_embed("❌ You can't marry a bot."))
+        await ctx.send(view=quick_card_view("❌ You can't marry a bot."))
         return
 
     if get_marriage(ctx.guild.id, ctx.author.id):
-        await ctx.send(embed=quick_embed("❌ You're already married! Use `?divorce` first if you want to remarry."))
+        await ctx.send(view=quick_card_view("❌ You're already married! Use `?divorce` first if you want to remarry."))
         return
 
     if get_marriage(ctx.guild.id, member.id):
@@ -164,7 +165,7 @@ async def marry_prefix(ctx, member: discord.Member = None):
             description=f"💍 **{member.display_name}** is already married! Better luck next time.",
             color=discord.Color.red(),
         )
-        await ctx.send(embed=embed)
+        await ctx.send(view=view)
         async with ctx.typing():
             await send_gif_embed(ctx.channel, "already married objection", title=None)
         return
@@ -184,7 +185,7 @@ async def marry_prefix(ctx, member: discord.Member = None):
 async def divorce_prefix(ctx):
     marriage = get_marriage(ctx.guild.id, ctx.author.id)
     if not marriage:
-        await ctx.send(embed=quick_embed("❌ You're not married to anyone."))
+        await ctx.send(view=quick_card_view("❌ You're not married to anyone."))
         return
 
     marriage_id, user1_id, user2_id, married_at = marriage
@@ -194,7 +195,7 @@ async def divorce_prefix(ctx):
     if not partner:
         # Partner has left the server — nothing to confirm with, so dissolve it automatically.
         delete_marriage(marriage_id)
-        await ctx.send(embed=quick_embed("✅ Your partner is no longer in this server — the marriage has been dissolved automatically."))
+        await ctx.send(view=quick_card_view("✅ Your partner is no longer in this server — the marriage has been dissolved automatically."))
         return
 
     embed = discord.Embed(
@@ -216,9 +217,9 @@ async def family_prefix(ctx, member: discord.Member = None):
 
     if not marriage:
         if member.id == ctx.author.id:
-            await ctx.send(embed=quick_embed("💔 You're not married yet. Use `?marry @user` to propose!"))
+            await ctx.send(view=quick_card_view("💔 You're not married yet. Use `?marry @user` to propose!"))
         else:
-            await ctx.send(embed=quick_embed(f"💔 **{member.display_name}** isn't married yet."))
+            await ctx.send(view=quick_card_view(f"💔 **{member.display_name}** isn't married yet."))
         return
 
     marriage_id, user1_id, user2_id, married_at = marriage
@@ -238,6 +239,6 @@ async def family_prefix(ctx, member: discord.Member = None):
         color=discord.Color.magenta(),
     )
     embed.set_thumbnail(url=member.display_avatar.url)
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 

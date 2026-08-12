@@ -1,3 +1,4 @@
+from bot.ui.premium_cards import quick_card_view, style_card_view
 """
 tickets.py — Ticket system (panel, open/close/claim, manage views).
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -100,12 +101,12 @@ class TicketManageView(discord.ui.View):
         staff_role = interaction.guild.get_role(REQUIRED_ROLE_ID)
         is_staff = staff_role and staff_role in interaction.user.roles
         if not is_staff:
-            await interaction.response.send_message(embed=quick_embed("❌ Only staff can claim tickets."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ Only staff can claim tickets."), ephemeral=True)
             return
 
         record = get_ticket_record(interaction.channel.id)
         if not record:
-            await interaction.response.send_message(embed=quick_embed("❌ This isn't a ticket channel."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ This isn't a ticket channel."), ephemeral=True)
             return
         _, status, _, claimed_by = record
 
@@ -118,7 +119,7 @@ class TicketManageView(discord.ui.View):
             return
 
         if claimed_by:
-            await interaction.response.send_message(embed=quick_embed(f"❗ This ticket is already claimed by <@{claimed_by}>."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view(f"❗ This ticket is already claimed by <@{claimed_by}>."), ephemeral=True)
             return
 
         claim_ticket_record(interaction.channel.id, interaction.user.id)
@@ -132,7 +133,7 @@ class TicketManageView(discord.ui.View):
         staff_role = interaction.guild.get_role(REQUIRED_ROLE_ID)
         is_staff = staff_role and staff_role in interaction.user.roles
         if not is_staff:
-            await interaction.response.send_message(embed=quick_embed("❌ Only staff can add members to a ticket."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ Only staff can add members to a ticket."), ephemeral=True)
             return
         await interaction.response.send_message(
             "➕ Mention the member to add, e.g. `@username` (paste it as your next message here — staff only).",
@@ -147,11 +148,11 @@ class TicketManageView(discord.ui.View):
         is_owner = record and record[0] == interaction.user.id
 
         if not (is_staff or is_owner):
-            await interaction.response.send_message(embed=quick_embed("❌ Only the ticket opener or staff can close this ticket."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("❌ Only the ticket opener or staff can close this ticket."), ephemeral=True)
             return
 
         close_ticket_record(interaction.channel.id)
-        await interaction.response.send_message(embed=quick_embed("🔒 **Closing this ticket in 5 seconds...**"))
+        await interaction.response.send_message(view=quick_card_view("🔒 **Closing this ticket in 5 seconds...**"))
         await asyncio.sleep(5)
         try:
             await interaction.channel.delete(reason=f"Ticket closed by {interaction.user}")
@@ -168,9 +169,9 @@ class TicketPanelView(discord.ui.View):
         if existing:
             channel = interaction.guild.get_channel(existing)
             if channel:
-                await interaction.response.send_message(embed=quick_embed(f"❗ You already have an open ticket: {channel.mention}"), ephemeral=True)
+                await interaction.response.send_message(view=quick_card_view(f"❗ You already have an open ticket: {channel.mention}"), ephemeral=True)
                 return
-        await interaction.response.send_message(embed=quick_embed("🎫 What do you need help with?"), view=TicketTypeSelectView(), ephemeral=True)
+        await interaction.response.send_message(view=quick_card_view("🎫 What do you need help with?"), view=TicketTypeSelectView(), ephemeral=True)
 
 @bot.hybrid_command(name="ticketpanel", aliases=["tp"], description="[Staff] Post a button-based ticket-creation panel")
 @commands.has_role(REQUIRED_ROLE_ID)
@@ -188,26 +189,26 @@ async def ticket_prefix(ctx):
     if existing:
         channel = ctx.guild.get_channel(existing)
         if channel:
-            await ctx.send(embed=quick_embed(f"❗ You already have an open ticket: {channel.mention}"))
+            await ctx.send(view=quick_card_view(f"❗ You already have an open ticket: {channel.mention}"))
             return
-    await ctx.send(embed=quick_embed("🎫 What do you need help with?"), view=TicketTypeSelectView())
+    await ctx.send(view=quick_card_view("🎫 What do you need help with?"), view=TicketTypeSelectView())
 
 @bot.hybrid_command(name="closeticket", aliases=["close"], description="Close the ticket you're currently in")
 async def close_ticket_prefix(ctx):
     record = get_ticket_record(ctx.channel.id)
     if not record:
-        await ctx.send(embed=quick_embed("❌ This isn't a ticket channel."))
+        await ctx.send(view=quick_card_view("❌ This isn't a ticket channel."))
         return
 
     staff_role = ctx.guild.get_role(REQUIRED_ROLE_ID)
     is_staff = staff_role and staff_role in ctx.author.roles
     is_owner = record[0] == ctx.author.id
     if not (is_staff or is_owner):
-        await ctx.send(embed=quick_embed("❌ Only the ticket opener or staff can close this ticket."))
+        await ctx.send(view=quick_card_view("❌ Only the ticket opener or staff can close this ticket."))
         return
 
     close_ticket_record(ctx.channel.id)
-    await ctx.send(embed=quick_embed("🔒 **Closing this ticket in 5 seconds...**"))
+    await ctx.send(view=quick_card_view("🔒 **Closing this ticket in 5 seconds...**"))
     await asyncio.sleep(5)
     try:
         await ctx.channel.delete(reason=f"Ticket closed by {ctx.author}")
@@ -219,7 +220,7 @@ async def close_ticket_prefix(ctx):
 async def list_tickets_prefix(ctx):
     rows = list_open_tickets(ctx.guild.id)
     if not rows:
-        await ctx.send(embed=quick_embed("📭 No open tickets right now."))
+        await ctx.send(view=quick_card_view("📭 No open tickets right now."))
         return
     lines = []
     for channel_id, user_id, ticket_type, claimed_by, created_at in rows:
@@ -228,6 +229,6 @@ async def list_tickets_prefix(ctx):
         claim_text = f"claimed by <@{claimed_by}>" if claimed_by else "unclaimed"
         lines.append(f"{chan_text} — <@{user_id}> — *{ticket_type}* — {claim_text}")
     embed = discord.Embed(title=f"🎫 Open Tickets ({len(rows)})", description="\n".join(lines), color=0x2f3136)
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 

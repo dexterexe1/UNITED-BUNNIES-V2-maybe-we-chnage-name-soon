@@ -1,3 +1,4 @@
+from bot.ui.premium_cards import quick_card_view, style_card_view
 """
 moderation.py — Real moderation tools (prefix) + aesthetic ?bon.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -25,7 +26,7 @@ class AestheticSelfBanView(discord.ui.View):
     @discord.ui.button(label="Proceed", style=discord.ButtonStyle.danger, emoji="⛓️")
     async def yes_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user != self.ctx.author:
-            await interaction.response.send_message(embed=quick_embed("🌌 This timeline isn't yours to change."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("🌌 This timeline isn't yours to change."), ephemeral=True)
             return
         embed = discord.Embed(title="🪐 SYSTEM OVERRIDE SUCCESSFUL", description=f"**{interaction.user.name}** has willingly left the server matrix.", color=0x2f3136, timestamp=datetime.datetime.now(UTC))
         embed.set_image(url="https://media.giphy.com/media/3XiQswSmruBiw/giphy.gif")
@@ -35,7 +36,7 @@ class AestheticSelfBanView(discord.ui.View):
     @discord.ui.button(label="Abrupt", style=discord.ButtonStyle.secondary, emoji="🛡️")
     async def no_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user != self.ctx.author:
-            await interaction.response.send_message(embed=quick_embed("🌌 This timeline isn't yours to change."), ephemeral=True)
+            await interaction.response.send_message(view=quick_card_view("🌌 This timeline isn't yours to change."), ephemeral=True)
             return
         embed = discord.Embed(description="🔮 *The system stabilizer kicks in. Ban sequence retracted safely.*", color=0x2f3136)
         for item in self.children: item.disabled = True
@@ -46,12 +47,12 @@ class AestheticSelfBanView(discord.ui.View):
 @app_commands.describe(member="User to (fake) ban")
 async def bon_prefix(ctx, member: discord.Member = None):
     if member is None:
-        await ctx.send(embed=quick_embed("❌ **Syntax Error:** Specify a user profile. Example: `?bon @user`"))
+        await ctx.send(view=quick_card_view("❌ **Syntax Error:** Specify a user profile. Example: `?bon @user`"))
         return
     if member.id == bot.user.id:
         embed = discord.Embed(title="🛡️ SECURITY PROTOCOL ACTIVE", description="**This bot is fully secured.** System access keys are locked down.", color=0x2f3136, timestamp=datetime.datetime.now(UTC))
         embed.set_image(url="https://media.giphy.com/media/139eZBmH1HTyY8/giphy.gif")
-        await ctx.send(embed=embed)
+        await ctx.send(view=view)
         return
     if member == ctx.author:
         embed = discord.Embed(title="👾 INITIALIZING SELF DESTRUCTION SEQUENCE", description="Are you sure you want to decouple from the core frame?", color=0x2f3136)
@@ -67,7 +68,7 @@ async def bon_prefix(ctx, member: discord.Member = None):
     ]
     embed = discord.Embed(title="🔨 ADMINISTRATIVE REMOVAL EXECUTED", description=random.choice(funny_messages), color=0x2f3136, timestamp=datetime.datetime.now(UTC))
     embed.set_image(url="https://cdn.discordapp.com/attachments/1126581404164100147/1319747806143058012/united_bunnies.png")
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 
 # ==========================================
@@ -84,10 +85,10 @@ async def bon_prefix(ctx, member: discord.Member = None):
 @staff_check("mod")
 async def warn_prefix(ctx, member: discord.Member = None, *, reason: str = "No reason provided"):
     if member is None:
-        await ctx.send(embed=quick_embed("❌ Syntax: `?warn @user [reason]`"))
+        await ctx.send(view=quick_card_view("❌ Syntax: `?warn @user [reason]`"))
         return
     current = update_warnings(member.id, 1)
-    embed = style_embed(
+    view = style_card_view(
         "Warning Issued",
         kind="warn",
         description=(
@@ -98,56 +99,56 @@ async def warn_prefix(ctx, member: discord.Member = None, *, reason: str = "No r
         ),
         footer=f"ID: {member.id}",
     )
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
     if current >= 3:
         reset_warnings(member.id)
         try:
             await member.timeout(datetime.timedelta(minutes=10), reason="Reached 3 warnings")
-            await ctx.send(embed=quick_embed(f"🤫 **{member.display_name}** has been auto-timed out for 10 minutes after reaching 3 warnings."))
+            await ctx.send(view=quick_card_view(f"🤫 **{member.display_name}** has been auto-timed out for 10 minutes after reaching 3 warnings."))
         except discord.Forbidden:
-            await ctx.send(embed=quick_embed("⚠️ Reached 3 warnings, but I don't have permission to timeout that user."))
+            await ctx.send(view=quick_card_view("⚠️ Reached 3 warnings, but I don't have permission to timeout that user."))
 
 @bot.command(name="warnings", aliases=["warns"])
 async def warnings_prefix(ctx, member: discord.Member = None):
     member = member or ctx.author
     count = get_warnings(member.id)
-    embed = style_embed(
+    view = style_card_view(
         "Warnings",
         kind="info",
         description=f"{EMOJI_BULLET} user: {member.mention}\n{EMOJI_BULLET} warnings: **{count}/3**",
         footer=f"ID: {member.id}",
     )
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 @bot.command(name="clearwarnings", aliases=["cw", "clearwarns"])
 @staff_check("mod")
 async def clearwarnings_prefix(ctx, member: discord.Member = None):
     if member is None:
-        await ctx.send(embed=quick_embed("❌ Syntax: `?clearwarnings @user`"))
+        await ctx.send(view=quick_card_view("❌ Syntax: `?clearwarnings @user`"))
         return
     reset_warnings(member.id)
-    embed = style_embed(
+    view = style_card_view(
         "Warnings Cleared",
         kind="success",
         description=f"{EMOJI_BULLET} user: {member.mention}\n{EMOJI_BULLET} warnings: **0/3**",
         footer=f"ID: {member.id}",
     )
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 @bot.command(name="mute", aliases=["timeout"])
 @staff_check("mod")
 async def mute_prefix(ctx, member: discord.Member = None, minutes: int = 10, *, reason: str = "No reason provided"):
     if member is None:
-        await ctx.send(embed=quick_embed("❌ Syntax: `?mute @user [minutes] [reason]`"))
+        await ctx.send(view=quick_card_view("❌ Syntax: `?mute @user [minutes] [reason]`"))
         return
     minutes = max(1, min(40320, minutes))  # Discord's timeout cap is 28 days
     try:
         await member.timeout(datetime.timedelta(minutes=minutes), reason=f"{reason} (by {ctx.author})")
     except discord.Forbidden:
-        await ctx.send(embed=quick_embed("❌ I don't have permission to timeout that user (check role hierarchy)."))
+        await ctx.send(view=quick_card_view("❌ I don't have permission to timeout that user (check role hierarchy)."))
         return
-    embed = style_embed(
+    view = style_card_view(
         "Member Timed Out",
         kind="mod",
         description=(
@@ -158,42 +159,42 @@ async def mute_prefix(ctx, member: discord.Member = None, minutes: int = 10, *, 
         ),
         footer=f"ID: {member.id}",
     )
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 @bot.command(name="unmute", aliases=["untimeout"])
 @staff_check("mod")
 async def unmute_prefix(ctx, member: discord.Member = None):
     if member is None:
-        await ctx.send(embed=quick_embed("❌ Syntax: `?unmute @user`"))
+        await ctx.send(view=quick_card_view("❌ Syntax: `?unmute @user`"))
         return
     try:
         await member.timeout(None, reason=f"Unmuted by {ctx.author}")
     except discord.Forbidden:
-        await ctx.send(embed=quick_embed("❌ I don't have permission to unmute that user."))
+        await ctx.send(view=quick_card_view("❌ I don't have permission to unmute that user."))
         return
-    embed = style_embed(
+    view = style_card_view(
         "Member Unmuted",
         kind="success",
         description=f"{EMOJI_BULLET} user: {member.mention}\n{EMOJI_BULLET} moderator: {ctx.author.mention}",
         footer=f"ID: {member.id}",
     )
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 @bot.command(name="kick", aliases=["k"])
 @staff_check("kick")
 async def kick_prefix(ctx, member: discord.Member = None, *, reason: str = "No reason provided"):
     if member is None:
-        await ctx.send(embed=quick_embed("❌ Syntax: `?kick @user [reason]`"))
+        await ctx.send(view=quick_card_view("❌ Syntax: `?kick @user [reason]`"))
         return
     if member.top_role >= ctx.author.top_role and ctx.author.id != ctx.guild.owner_id:
-        await ctx.send(embed=quick_embed("❌ You can't kick someone with an equal or higher role than you."))
+        await ctx.send(view=quick_card_view("❌ You can't kick someone with an equal or higher role than you."))
         return
     try:
         await member.kick(reason=f"{reason} (by {ctx.author})")
     except discord.Forbidden:
-        await ctx.send(embed=quick_embed("❌ I don't have permission to kick that user (check role hierarchy)."))
+        await ctx.send(view=quick_card_view("❌ I don't have permission to kick that user (check role hierarchy)."))
         return
-    embed = style_embed(
+    view = style_card_view(
         "Member Kicked",
         kind="mod",
         description=(
@@ -203,26 +204,26 @@ async def kick_prefix(ctx, member: discord.Member = None, *, reason: str = "No r
         ),
         footer=f"ID: {member.id}",
     )
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 @bot.command(name="ban", aliases=["b"])
 @staff_check("ban")
 async def ban_prefix(ctx, member: discord.Member = None, *, reason: str = "No reason provided"):
     if member is None:
-        await ctx.send(embed=quick_embed("❌ Syntax: `?ban @user [reason]`"))
+        await ctx.send(view=quick_card_view("❌ Syntax: `?ban @user [reason]`"))
         return
         
     if member.top_role >= ctx.author.top_role and ctx.author.id != ctx.guild.owner_id:
-        await ctx.send(embed=quick_embed("❌ You can't ban someone with an equal or higher role than you."))
+        await ctx.send(view=quick_card_view("❌ You can't ban someone with an equal or higher role than you."))
         return
         
     try:
         await member.ban(reason=f"{reason} (by {ctx.author})")
     except discord.Forbidden:
-        await ctx.send(embed=quick_embed("❌ I don't have permission to ban that user (check role hierarchy)."))
+        await ctx.send(view=quick_card_view("❌ I don't have permission to ban that user (check role hierarchy)."))
         return
         
-    embed = style_embed(
+    view = style_card_view(
         "Member Banned",
         kind="error",
         description=(
@@ -232,29 +233,29 @@ async def ban_prefix(ctx, member: discord.Member = None, *, reason: str = "No re
         ),
         footer=f"ID: {member.id}",
     )
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 @bot.command(name="unban", aliases=["ub"])
 @staff_check("ban")
 async def unban_prefix(ctx, user_id: int = None, *, reason: str = "No reason provided"):
     if user_id is None:
-        await ctx.send(embed=quick_embed("❌ Syntax: `?unban <user_id> [reason]`"))
+        await ctx.send(view=quick_card_view("❌ Syntax: `?unban <user_id> [reason]`"))
         return
     try:
         user = await bot.fetch_user(user_id)
         await ctx.guild.unban(user, reason=f"{reason} (by {ctx.author})")
     except discord.NotFound:
-        await ctx.send(embed=quick_embed("❌ That user isn't banned."))
+        await ctx.send(view=quick_card_view("❌ That user isn't banned."))
         return
     except discord.Forbidden:
-        await ctx.send(embed=quick_embed("❌ I don't have permission to unban."))
+        await ctx.send(view=quick_card_view("❌ I don't have permission to unban."))
         return
-    embed = style_embed(
+    view = style_card_view(
         "Member Unbanned",
         kind="success",
         description=f"{EMOJI_BULLET} user: **{user}**\n{EMOJI_BULLET} moderator: {ctx.author.mention}",
         footer=f"ID: {user.id}",
     )
-    await ctx.send(embed=embed)
+    await ctx.send(view=view)
 
 
