@@ -1,4 +1,4 @@
-from bot.ui.premium_cards import quick_card_view, style_card_view
+from bot.ui.premium_cards import quick_card_view, style_card_view, embed_to_view
 """
 events.py — Bot lifecycle and message/member event handlers.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -165,7 +165,7 @@ async def on_member_join(member):
                         embed.set_thumbnail(url=join_cfg["thumbnailUrl"])
                     if join_cfg.get("footer"):
                         embed.set_footer(text=join_cfg["footer"])
-                    await channel.send(view=view)
+                    await channel.send(view=embed_to_view(embed))
                 else:
                     await channel.send(text)
                 return
@@ -226,7 +226,7 @@ async def on_message_delete(message):
             embed.add_field(name="Author Profile", value=f"{message.author.mention} (`{message.author.id}`)", inline=True)
             embed.add_field(name="Location Stream", value=message.channel.mention, inline=True)
             embed.add_field(name="Deleted Payload Content", value=message.content or "*No text payload (image/embed)*", inline=False)
-            await channel.send(view=view)
+            await channel.send(view=embed_to_view(embed))
 
 @bot.event
 async def on_message_edit(before, after):
@@ -240,7 +240,7 @@ async def on_message_edit(before, after):
             embed.add_field(name="Location Stream", value=before.channel.mention, inline=True)
             embed.add_field(name="Original Payload", value=before.content, inline=False)
             embed.add_field(name="Edited Revision Payload", value=after.content, inline=False)
-            await channel.send(view=view)
+            await channel.send(view=embed_to_view(embed))
 
 # ==========================================
 #         ✅ VOUCH AUTO-DETECT (pattern only; commands live in cogs/vouch.py)
@@ -558,7 +558,7 @@ async def on_message(message):
             color=discord.Color.orange(),
         )
         try:
-            await channel.send(view=view)
+            await channel.send(view=embed_to_view(embed))
         except Exception:
             pass
 

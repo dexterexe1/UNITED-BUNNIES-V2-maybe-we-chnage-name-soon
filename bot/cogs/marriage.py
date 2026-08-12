@@ -1,4 +1,4 @@
-from bot.ui.premium_cards import quick_card_view, style_card_view
+from bot.ui.premium_cards import quick_card_view, style_card_view, fun_card_view, embed_to_view
 """
 marriage.py — Marriage / proposal system.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -161,11 +161,11 @@ async def marry_prefix(ctx, member: discord.Member = None):
         return
 
     if get_marriage(ctx.guild.id, member.id):
-        embed = discord.Embed(
-            description=f"💍 **{member.display_name}** is already married! Better luck next time.",
-            color=discord.Color.red(),
-        )
-        await ctx.send(view=view)
+        await ctx.send(view=fun_card_view(
+            "💍 ALREADY MARRIED",
+            f"**{member.display_name}** is already taken. 💐\n\nBetter luck next time!",
+            kind="love",
+        ))
         async with ctx.typing():
             await send_gif_embed(ctx.channel, "already married objection", title=None)
         return
@@ -239,6 +239,6 @@ async def family_prefix(ctx, member: discord.Member = None):
         color=discord.Color.magenta(),
     )
     embed.set_thumbnail(url=member.display_avatar.url)
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 

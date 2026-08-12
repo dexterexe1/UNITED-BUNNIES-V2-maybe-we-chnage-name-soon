@@ -593,4 +593,3 @@ async def list_tickets_prefix(ctx):
 
     await ctx.send(
         embed=embed
-    )

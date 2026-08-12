@@ -1,4 +1,4 @@
-from bot.ui.premium_cards import quick_card_view, style_card_view
+from bot.ui.premium_cards import quick_card_view, style_card_view, fun_card_view, embed_to_view
 """
 community.py — Help menu, control panel, setup dropdowns, announcements, leveling cmds, dashboard links, no-prefix helpers.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -125,7 +125,7 @@ async def rank_prefix(ctx, member: discord.Member = None):
     embed.add_field(name="Level", value=str(level), inline=True)
     embed.add_field(name="Total XP", value=str(xp), inline=True)
     embed.add_field(name="Progress to Next Level", value=f"`{bar}` {progress}/{span} XP", inline=False)
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 @bot.hybrid_command(name="levelleaderboard", aliases=["levellb", "ranklb", "ll", "levels"], description="Show the top XP earners in this server")
 async def level_leaderboard_prefix(ctx):
@@ -146,7 +146,7 @@ async def level_leaderboard_prefix(ctx):
         name = member.mention if member else f"<@{user_id}>"
         lines.append(f"**{i}.** {name} — Level {level} ({xp} XP)")
     embed = discord.Embed(title="📈 Level Leaderboard", description="\n".join(lines), color=discord.Color.blurple())
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 
 
@@ -279,7 +279,7 @@ class VouchModal(discord.ui.Modal, title="Vouch for a Member"):
         if comment:
             embed.add_field(name="Comment", value=comment, inline=False)
         embed.set_footer(text=f"{target.display_name} now has {total} vouch(es)")
-        await interaction.response.send_message(view=view)
+        await interaction.response.send_message(view=embed_to_view(embed))
 
 
 # --- SETUP DROPDOWNS ---
@@ -516,7 +516,7 @@ async def ping_prefix(ctx):
         description=f"{EMOJI_BULLET} latency: **{round(bot.latency * 1000)}ms**",
     ))
 
-async def send_gif_embed(channel, query: str, title: str = None):
+async def send_gif_embed(channel, query: str, title: str = None, *, description: str | None = None, kind: str = "fun"):
     loop = asyncio.get_running_loop()
     gif_url = await loop.run_in_executor(None, fetch_giphy_gif_url, query)
     if not gif_url:
@@ -524,12 +524,46 @@ async def send_gif_embed(channel, query: str, title: str = None):
             await channel.send(view=quick_card_view("❌ GIPHY_API_KEY is missing on the server."))
         else:
             await channel.send(view=quick_card_view("❌ No GIF found. Try different keywords."))
-        return
-    embed = discord.Embed(color=0x2f3136, timestamp=datetime.datetime.now(UTC))
-    if title:
-        embed.title = title
-    embed.set_image(url=gif_url)
-    await channel.send(view=view)
+        return None
+    await channel.send(
+        view=fun_card_view(
+            title or "GIF",
+            description or "✨ A little something for the timeline.",
+            image_url=gif_url,
+            kind=kind,
+        )
+    )
+    return gif_url
+
+FUN_ACTIONS = {
+    "hugs": ("🫂 HUG", "💕", "anime hug"),
+    "kisses": ("💋 KISS", "💕", "anime kiss"),
+    "pats": ("🫳 PAT PAT", "✨", "anime pat"),
+    "throws": ("💨 THROW", "😂", "anime throw"),
+    "slaps": ("👋 SLAP", "💥", "anime slap"),
+    "pokes": ("👉 POKE", "👉", "anime poke"),
+    "waves at": ("👋 WAVE", "✨", "anime wave"),
+    "dances with": ("💃 DANCE", "🎶", "anime dance"),
+    "cries at": ("😭 CRY", "🥲", "anime cry"),
+    "blushes at": ("😊 BLUSH", "💕", "anime blush"),
+}
+
+async def action_gif(ctx, action: str, target: discord.Member = None, query: str = None):
+    target = target or ctx.author
+    title, emoji, default_query = FUN_ACTIONS.get(
+        action,
+        (action.replace(" ", " ").upper(), "✨", f"{action} gif"),
+    )
+    actor = discord.utils.escape_markdown(ctx.author.display_name)
+    target_name = discord.utils.escape_markdown(target.display_name)
+    sentence = f"**{actor}** {action} **{target_name}**! {emoji}"
+    await send_gif_embed(
+        ctx.channel,
+        query or default_query,
+        title=title,
+        description=sentence,
+        kind="love" if action in ("kisses", "hugs", "blushes at", "dances with") else "fun",
+    )
 
 @bot.hybrid_command(name="gif", description="Send a random GIF for a keyword")
 @app_commands.describe(query="Search keywords")
@@ -539,13 +573,6 @@ async def gif_prefix(ctx, *, query: str = None):
         return
     async with ctx.typing():
         await send_gif_embed(ctx.channel, query, title=f"GIF: {query}")
-
-async def action_gif(ctx, action: str, target: discord.Member = None, query: str = None):
-    target = target or ctx.author
-    text = f"{ctx.author.mention} {action} {target.mention}"
-    await ctx.send(text)
-    async with ctx.typing():
-        await send_gif_embed(ctx.channel, query or f"{action} gif", title=None)
 
 @bot.hybrid_command(name="hug", description="Give someone a hug")
 @app_commands.describe(member="Who to hug")
@@ -645,7 +672,7 @@ async def avatar_prefix(ctx, member: discord.Member = None):
     member = member or ctx.author
     embed = discord.Embed(title=f"{member.display_name}'s Avatar", color=0x2f3136)
     embed.set_image(url=member.display_avatar.url)
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 @bot.hybrid_command(name="userinfo", description="Get info about a user")
 @app_commands.describe(member="User to check (defaults to yourself)")
@@ -658,7 +685,7 @@ async def userinfo_prefix(ctx, member: discord.Member = None):
     embed.add_field(name="Account Created", value=discord.utils.format_dt(member.created_at, style="F"), inline=False)
     if member.joined_at:
         embed.add_field(name="Joined Server", value=discord.utils.format_dt(member.joined_at, style="F"), inline=False)
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 @bot.hybrid_command(name="serverinfo", description="Get info about this server")
 async def serverinfo_prefix(ctx):
@@ -671,7 +698,7 @@ async def serverinfo_prefix(ctx):
     embed.add_field(name="Created", value=discord.utils.format_dt(g.created_at, style="F"), inline=False)
     embed.add_field(name="Members", value=str(g.member_count), inline=True)
     embed.add_field(name="Channels", value=str(len(g.channels)), inline=True)
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 @bot.hybrid_command(name="meme", description="Get a random meme")
 async def meme_prefix(ctx):
@@ -690,7 +717,7 @@ async def meme_prefix(ctx):
         return
     embed = discord.Embed(title=title, color=0x2f3136)
     embed.set_image(url=meme_url)
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 @bot.event
 async def on_command_error(ctx, error):

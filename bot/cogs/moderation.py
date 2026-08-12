@@ -1,4 +1,4 @@
-from bot.ui.premium_cards import quick_card_view, style_card_view
+from bot.ui.premium_cards import quick_card_view, style_card_view, embed_to_view
 """
 moderation.py — Real moderation tools (prefix) + aesthetic ?bon.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -52,7 +52,7 @@ async def bon_prefix(ctx, member: discord.Member = None):
     if member.id == bot.user.id:
         embed = discord.Embed(title="🛡️ SECURITY PROTOCOL ACTIVE", description="**This bot is fully secured.** System access keys are locked down.", color=0x2f3136, timestamp=datetime.datetime.now(UTC))
         embed.set_image(url="https://media.giphy.com/media/139eZBmH1HTyY8/giphy.gif")
-        await ctx.send(view=view)
+        await ctx.send(view=embed_to_view(embed))
         return
     if member == ctx.author:
         embed = discord.Embed(title="👾 INITIALIZING SELF DESTRUCTION SEQUENCE", description="Are you sure you want to decouple from the core frame?", color=0x2f3136)
@@ -68,7 +68,7 @@ async def bon_prefix(ctx, member: discord.Member = None):
     ]
     embed = discord.Embed(title="🔨 ADMINISTRATIVE REMOVAL EXECUTED", description=random.choice(funny_messages), color=0x2f3136, timestamp=datetime.datetime.now(UTC))
     embed.set_image(url="https://cdn.discordapp.com/attachments/1126581404164100147/1319747806143058012/united_bunnies.png")
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 
 # ==========================================

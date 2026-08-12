@@ -1,4 +1,4 @@
-from bot.ui.premium_cards import quick_card_view, style_card_view
+from bot.ui.premium_cards import quick_card_view, style_card_view, embed_to_view
 """
 music.py — Music engine (play, queue, volume, loop, playlist).
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -56,7 +56,7 @@ def play_next_in_queue(ctx):
         if next_track["thumbnail"]:
             embed.set_thumbnail(url=next_track["thumbnail"])
         embed.set_footer(text="Enjoy the stream session matrix 🔊")
-        bot.loop.create_task(ctx.send(view=view))
+        bot.loop.create_task(ctx.send(view=embed_to_view(embed)))
     else:
         now_playing.pop(guild_id, None)
         bot.loop.create_task(ctx.send("🏁 **Queue completed.** The audio stream has finished."))
@@ -144,7 +144,7 @@ async def play_audio_command(ctx, *, search_or_url: str = None):
         if thumbnail:
             embed.set_thumbnail(url=thumbnail)
         embed.set_footer(text="Not the correct track? Try being more specific.")
-        await ctx.send(view=view)
+        await ctx.send(view=embed_to_view(embed))
     else:
         now_playing[guild_id] = track_data
         volume = song_volumes.get(guild_id, 1.0)
@@ -161,7 +161,7 @@ async def play_audio_command(ctx, *, search_or_url: str = None):
         )
         if thumbnail:
             embed.set_thumbnail(url=thumbnail)
-        await ctx.send(view=view)
+        await ctx.send(view=embed_to_view(embed))
 @bot.hybrid_command(name="skip", aliases=["s", "next"], description="Skip the current track")
 async def skip_audio_command(ctx):
     vc = ctx.voice_client
@@ -219,7 +219,7 @@ async def queue_command(ctx):
             embed.set_footer(text=f"...and {len(queue) - 10} more track(s) queued.")
     else:
         embed.add_field(name="⏭️ Up Next", value="Queue is empty.", inline=False)
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 @bot.hybrid_command(name="nowplaying", aliases=["np"], description="Show what's currently playing")
 async def nowplaying_command(ctx):
@@ -238,7 +238,7 @@ async def nowplaying_command(ctx):
     vol = int(song_volumes.get(ctx.guild.id, 1.0) * 100)
     mode = loop_modes.get(ctx.guild.id, "off")
     embed.set_footer(text=f"🔊 Volume: {vol}%  •  🔁 Loop: {mode}")
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 @bot.hybrid_command(name="volume", aliases=["vol"], description="Get or set the playback volume")
 @app_commands.describe(percent="Volume percentage (0-200)")
@@ -317,6 +317,6 @@ async def view_or_play_playlist(ctx, action: str = "view"):
         for i, (title, url) in enumerate(songs, 1):
             description_text += f"**{i}. {title}**\n🔗 [Stream Track]({url})\n\n"
         embed.description = description_text
-        await ctx.send(view=view)
+        await ctx.send(view=embed_to_view(embed))
 
 

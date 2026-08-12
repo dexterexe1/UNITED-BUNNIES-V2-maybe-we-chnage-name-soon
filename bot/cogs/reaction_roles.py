@@ -1,4 +1,4 @@
-from bot.ui.premium_cards import quick_card_view, style_card_view
+from bot.ui.premium_cards import quick_card_view, style_card_view, embed_to_view
 """
 reaction_roles.py — Reaction role panels and role menus.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -45,7 +45,7 @@ async def _post_reaction_panel(guild: discord.Guild, panel: dict):
         color=discord.Color.blurple(),
     )
     try:
-        message = await channel.send(view=view)
+        message = await channel.send(view=embed_to_view(embed))
         for m in mappings:
             try:
                 await message.add_reaction(m["emoji"])

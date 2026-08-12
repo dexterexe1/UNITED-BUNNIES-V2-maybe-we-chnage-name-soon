@@ -1,4 +1,4 @@
-from bot.ui.premium_cards import quick_card_view, style_card_view
+from bot.ui.premium_cards import quick_card_view, style_card_view, embed_to_view
 """
 vouch.py — Vouching system.
 Extracted from the original monolithic bot.py. Logic unchanged.
@@ -72,7 +72,7 @@ async def vouch_prefix(ctx: commands.Context, member: discord.Member = None, *, 
     if comment:
         embed.add_field(name="Comment", value=comment, inline=False)
     embed.set_footer(text=f"{member.display_name} now has {total} vouch(es)")
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 
 @bot.hybrid_command(name="unvouch", description="Remove your most recent vouch for a user")
@@ -120,7 +120,7 @@ async def vouches_prefix(ctx: commands.Context, member: discord.Member = None):
             lines.append(line)
         embed.add_field(name="Recent", value="\n".join(lines), inline=False)
 
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 
 @bot.hybrid_command(name="vouchleaderboard", aliases=["vouchlb"], description="Show the most-vouched users in this server")
@@ -142,7 +142,7 @@ async def vouch_leaderboard_prefix(ctx: commands.Context):
         description="\n".join(lines), 
         color=discord.Color.gold()
     )
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 
 # ------------- Configuration -------------
@@ -158,7 +158,7 @@ async def set_vouch_channel_prefix(ctx: commands.Context, channel: discord.TextC
         description=f"✅ Vouch channel successfully set to {channel.mention}.\n\nUsers can now chat normally here to issue auto-vouches, or use manual lookup commands.",
         color=discord.Color.green()
     )
-    await ctx.send(view=view)
+    await ctx.send(view=embed_to_view(embed))
 
 
 @bot.hybrid_command(name="clearvouchchannel", aliases=["clearvouch"], description="[Mod] Remove the vouch channel restriction")

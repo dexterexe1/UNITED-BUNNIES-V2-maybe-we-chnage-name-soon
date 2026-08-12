@@ -19,7 +19,20 @@ def _accent(kind: str = "info") -> int:
         "mod": DEEP_PURPLE,
         "purple": PURPLE,
         "blue": BLUE,
+        "fun": PURPLE,
+        "love": 0xFF6B9A,
+        "music": BLUE,
     }.get((kind or "info").lower(), PURPLE)
+
+
+def _color_value(color) -> int | None:
+    if color is None:
+        return None
+    try:
+        value = color.value
+        return value if value else None
+    except AttributeError:
+        return int(color)
 
 
 def premium_card_view(
@@ -30,55 +43,95 @@ def premium_card_view(
     footer: str | None = None,
     kind: str = "info",
     accent_color: int | discord.Colour | None = None,
+    image_url: str | None = None,
+    thumbnail_url: str | None = None,
 ) -> discord.ui.LayoutView:
-    """Build a Discord Components V2 card.
+    """Build a real Discord Components V2 card.
 
-    This uses Discord's native Container/TextDisplay components, so all text
-    remains real selectable/copyable Discord text and there is no classic
-    embed left border.
+    Uses LayoutView + Container + TextDisplay/Section/MediaGallery. It does not
+    create a classic discord.Embed, so there is no classic embed accent strip.
     """
     view = discord.ui.LayoutView(timeout=None)
-
     parts: list[discord.ui.Item] = []
     heading = str(title).strip()
 
-    # The large heading is deliberately a TextDisplay, not an embed title.
-    parts.append(discord.ui.TextDisplay(f"## ✦ {heading.upper()} ✦"))
+    if thumbnail_url and description:
+        section = discord.ui.Section(accessory=discord.ui.Thumbnail(media=thumbnail_url))
+        section.add_item(discord.ui.TextDisplay(f"## {heading}"))
+        section.add_item(discord.ui.TextDisplay(description.strip()))
+        parts.append(section)
+    else:
+        parts.append(discord.ui.TextDisplay(f"## {heading}"))
+        if description:
+            parts.append(discord.ui.Separator())
+            parts.append(discord.ui.TextDisplay(description.strip()))
+        if thumbnail_url:
+            section = discord.ui.Section(accessory=discord.ui.Thumbnail(media=thumbnail_url))
+            section.add_item(discord.ui.TextDisplay(""))
+            parts.append(section)
 
-    if description:
-        parts.append(discord.ui.Separator())
-        parts.append(discord.ui.TextDisplay(description.strip()))
-
-    for name, value, inline in (fields or []):
+    for name, value, _inline in (fields or []):
         parts.append(discord.ui.Separator())
         label = str(name).strip()
         body = str(value).strip()
-        if label:
-            parts.append(discord.ui.TextDisplay(f"**{label}**\n{body}"))
-        else:
-            parts.append(discord.ui.TextDisplay(body))
+        parts.append(discord.ui.TextDisplay(f"**{label}**\n{body}" if label else body))
+
+    if image_url:
+        parts.append(discord.ui.Separator())
+        gallery = discord.ui.MediaGallery()
+        gallery.add_item(media=image_url)
+        parts.append(gallery)
 
     if footer:
-        parts.append(discord.ui.Separator())
+        parts.append(discord.ui.Separator(visible=False))
         parts.append(discord.ui.TextDisplay(f"-# {footer.strip()}"))
 
     container = discord.ui.Container(
         *parts,
-        accent_color=accent_color if accent_color is not None else _accent(kind),
+        accent_color=(accent_color if accent_color is not None else _accent(kind)),
     )
     view.add_item(container)
     return view
 
 
+def fun_card_view(
+    title: str,
+    description: str,
+    *,
+    image_url: str | None = None,
+    kind: str = "fun",
+) -> discord.ui.LayoutView:
+    """Single-message card for social/fun commands."""
+    return premium_card_view(
+        title=title,
+        description=description,
+        kind=kind,
+        image_url=image_url,
+    )
+
+
+def error_card_view(text: str) -> discord.ui.LayoutView:
+    return premium_card_view(
+        title="ACTION FAILED",
+        description=text,
+        kind="error",
+    )
+
+
 def quick_card_view(text: str, *, title: str | None = None) -> discord.ui.LayoutView:
-    """Premium replacement for the bot's small one-message responses."""
-    if text.startswith(("❌", "❗", "🚫", "💔")):
+    """Small Components V2 response.
+
+    Only genuine error prefixes use ACTION FAILED. Romantic/fun messages such
+    as 💔 are deliberately not classified as errors.
+    """
+    clean = str(text).strip()
+    if clean.startswith(("❌", "🚫")) or clean.lower().startswith(("error:", "failed:")):
         kind = "error"
         default_title = "ACTION FAILED"
-    elif text.startswith(("✅", "🎉", "🔓")):
+    elif clean.startswith(("✅", "🎉", "🔓")):
         kind = "success"
-        default_title = "SUCCESS"
-    elif text.startswith(("⚠️", "🤫", "🔒")):
+        default_title = "DONE"
+    elif clean.startswith(("⚠️", "🤫", "🔒")):
         kind = "warn"
         default_title = "NOTICE"
     else:
@@ -87,7 +140,7 @@ def quick_card_view(text: str, *, title: str | None = None) -> discord.ui.Layout
 
     return premium_card_view(
         title=title or default_title,
-        description=text,
+        description=clean,
         kind=kind,
     )
 
@@ -100,8 +153,9 @@ def style_card_view(
     color: int | None = None,
     footer: str | None = None,
     kind: str = "info",
+    image_url: str | None = None,
+    thumbnail_url: str | None = None,
 ) -> discord.ui.LayoutView:
-    """Premium replacement for style_embed()."""
     return premium_card_view(
         title=title,
         description=description,
@@ -109,4 +163,29 @@ def style_card_view(
         footer=footer,
         kind=kind,
         accent_color=color,
+        image_url=image_url,
+        thumbnail_url=thumbnail_url,
+    )
+
+
+def embed_to_view(embed: discord.Embed) -> discord.ui.LayoutView:
+    """Convert a legacy Embed into a real Components V2 card.
+
+    Used as a safe compatibility bridge for the bot's older commands while
+    keeping the existing message content, fields and images.
+    """
+    title = embed.title or "UNITED BUNNIES"
+    description = embed.description
+    fields = [(f.name, f.value, f.inline) for f in embed.fields]
+    footer = embed.footer.text if embed.footer else None
+    image_url = embed.image.url if embed.image and embed.image.url else None
+    thumbnail_url = embed.thumbnail.url if embed.thumbnail and embed.thumbnail.url else None
+    return premium_card_view(
+        title=title,
+        description=description,
+        fields=fields,
+        footer=footer,
+        accent_color=_color_value(embed.color),
+        image_url=image_url,
+        thumbnail_url=thumbnail_url,
     )
