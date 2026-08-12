@@ -7,6 +7,7 @@ from discord.ext import commands
 import discord.app_commands as app_commands
 import yt_dlp
 import asyncio
+import datetime
 
 from bot.config import (
     bot, quick_embed, song_queues, now_playing, song_volumes, loop_modes,

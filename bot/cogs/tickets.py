@@ -6,6 +6,8 @@ import discord
 from discord.ext import commands
 import discord.app_commands as app_commands
 import datetime
+import asyncio
+import re
 
 from bot.config import bot, quick_embed, REQUIRED_ROLE_ID, TICKET_CATEGORY_NAME, UTC
 from bot.database import (

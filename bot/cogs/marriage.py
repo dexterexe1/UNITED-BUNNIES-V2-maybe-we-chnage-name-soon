@@ -9,6 +9,7 @@ import datetime
 
 from bot.config import bot, quick_embed, UTC
 from bot.database import get_marriage, create_marriage, delete_marriage
+from bot.cogs.community import send_gif_embed
 
 class MarriageProposalView(discord.ui.View):
     def __init__(self, proposer: discord.Member, target: discord.Member):

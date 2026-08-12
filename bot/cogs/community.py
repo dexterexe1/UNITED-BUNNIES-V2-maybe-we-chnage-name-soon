@@ -7,10 +7,14 @@ from discord.ext import commands
 import discord.app_commands as app_commands
 import datetime
 import asyncio
+import random
+import re
+import requests
 
 from bot.config import (
     bot, quick_embed, style_embed, REQUIRED_ROLE_ID, UTC, BRAND_COLOR,
-    SUPPORT_SERVER_URL, DASHBOARD_URL, INVITE_URL,
+    afk_users,
+    SUPPORT_SERVER_URL, DASHBOARD_URL, INVITE_URL, GIPHY_API_KEY, fetch_giphy_gif_url,
     has_required_slash_role, mod_group, LEVELING_SYSTEM_ENABLED, EMOJI_BULLET,
 )
 from bot.database import (
@@ -18,7 +22,7 @@ from bot.database import (
     is_leveling_enabled, get_levelup_channel,
     get_all_role_menu_message_ids, get_role_menu_items,
     has_noprefix_perm, get_trusted_role_id, list_noprefix_users,
-    set_config, get_config,
+    set_config, get_config, add_vouch, count_vouches,
 )
 
 

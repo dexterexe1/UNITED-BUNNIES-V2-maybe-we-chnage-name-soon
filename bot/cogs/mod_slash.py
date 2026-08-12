@@ -8,6 +8,7 @@ import discord.app_commands as app_commands
 import datetime
 
 from bot.config import bot, quick_embed, REQUIRED_ROLE_ID, mod_group, has_required_slash_role, UTC
+from bot.cogs.community import build_help_home_embed, HelpView
 from bot.database import (
     set_config, get_config,
     set_welcome_message, clear_welcome_message, format_welcome_message,
@@ -25,7 +26,14 @@ from bot.database import (
 @mod_group.command(name="setup", description="🤖 Launch interactive dropdown configuration dashboards.")
 @has_required_slash_role()
 async def setup_slash(interaction: discord.Interaction):
-    await interaction.response.send_message(embed=discord.Embed(title="🛠️ Server Configuration Dashboard", description="Configure server assets dynamically below:"), view=SetupDashboardView(), ephemeral=True)
+    await interaction.response.send_message(
+        embed=discord.Embed(
+            title="🛠️ Server Configuration Dashboard",
+            description="Use the commands in `/mod help` to configure moderation, welcome, leveling, logs, and no-prefix settings. The dashboard link is available from the bot help menu.",
+        ),
+        view=HelpView(),
+        ephemeral=True,
+    )
 
 @mod_group.command(name="help", description="🔨 View the Administrative Enforcement Deck.")
 @has_required_slash_role()

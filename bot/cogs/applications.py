@@ -7,9 +7,17 @@ from discord.ext import commands
 import discord.app_commands as app_commands
 import asyncio
 import datetime
+import aiohttp
 
-from bot.config import bot, quick_embed, REQUIRED_ROLE_ID, UTC, has_required_slash_role, mod_group
+from bot.config import (
+    bot, quick_embed, REQUIRED_ROLE_ID, UTC, has_required_slash_role, mod_group,
+    now_playing,
+    BOT_API_SECRET, DASHBOARD_URL,
+)
 from bot import mongo_bridge
+from bot.database import get_level_data, xp_for_level, get_open_ticket_for_user
+from bot.cogs.tickets import open_new_ticket
+from bot.cogs.community import VouchModal, make_progress_bar
 
 class ApplicationModal(discord.ui.Modal, title="Application Form"):
     def __init__(self, form_data: dict):
