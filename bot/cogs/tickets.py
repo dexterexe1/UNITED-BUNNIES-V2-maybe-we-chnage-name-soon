@@ -1,3 +1,4 @@
+from bot.config import quick_embed
 from bot.ui.premium_cards import quick_card_view, style_card_view
 """
 tickets.py — Ticket system (panel, open/close/claim, manage views).
@@ -171,7 +172,7 @@ class TicketPanelView(discord.ui.View):
             if channel:
                 await interaction.response.send_message(view=quick_card_view(f"❗ You already have an open ticket: {channel.mention}"), ephemeral=True)
                 return
-        await interaction.response.send_message(view=quick_card_view("🎫 What do you need help with?"), view=TicketTypeSelectView(), ephemeral=True)
+        await interaction.response.send_message(embed=quick_embed("🎫 What do you need help with?"), view=TicketTypeSelectView(), ephemeral=True)
 
 @bot.hybrid_command(name="ticketpanel", aliases=["tp"], description="[Staff] Post a button-based ticket-creation panel")
 @commands.has_role(REQUIRED_ROLE_ID)
@@ -191,7 +192,7 @@ async def ticket_prefix(ctx):
         if channel:
             await ctx.send(view=quick_card_view(f"❗ You already have an open ticket: {channel.mention}"))
             return
-    await ctx.send(view=quick_card_view("🎫 What do you need help with?"), view=TicketTypeSelectView())
+    await ctx.send(embed=quick_embed("🎫 What do you need help with?"), view=TicketTypeSelectView())
 
 @bot.hybrid_command(name="closeticket", aliases=["close"], description="Close the ticket you're currently in")
 async def close_ticket_prefix(ctx):
