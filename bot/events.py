@@ -23,7 +23,7 @@ from bot.database import (
     is_leveling_enabled, get_levelup_channel, add_xp, xp_for_level,
     get_level_data, has_noprefix_perm, level_leaderboard,
     get_all_role_menu_message_ids, get_role_menu_items,
-    get_vouch_channel, add_vouch, count_vouches,
+    get_vouch_channel, add_vouch, count_vouches, get_custom_command,
     update_warnings, reset_warnings,
 )
 from bot.status import publish_bot_status
@@ -46,9 +46,17 @@ except Exception:
     RoleMenuView = None
 
 # --- SYNC MODERN SLASH COMMAND TREES ---
+_ready_initialized = False
+_background_tasks_started = False
+
 @bot.event
 async def on_ready():
-    bot.tree.add_command(mod_group) 
+    global _ready_initialized, _background_tasks_started
+    if not _ready_initialized:
+        try:
+            bot.tree.add_command(mod_group)
+        except discord.app_commands.CommandAlreadyRegistered:
+            pass
     print(f"✨ Success! {bot.user.name} is online.")
     print(f"📋 Prefix/hybrid commands loaded: {len(bot.commands)}")
     # Sample public commands so deploy logs prove help/ping exist
@@ -56,6 +64,9 @@ async def on_ready():
         c = bot.get_command(name)
         print(f"   - {name}: {'OK' if c else 'MISSING'}")
     await publish_bot_status()
+    if _ready_initialized:
+        return
+    _ready_initialized = True
 
     # Re-register persistent views (buttons with custom_id) so they keep
     # working after a restart, not just for the session that created them.
@@ -90,23 +101,28 @@ async def on_ready():
             await publish_bot_status()
             await asyncio.sleep(15)
 
-    bot.loop.create_task(status_loop())
+    if not _background_tasks_started:
+        bot.loop.create_task(status_loop())
 
     # Dashboard sync: pulls command toggles / custom commands / auto-responses
     # from the same MongoDB the website writes to, so changes made on the
     # dashboard actually take effect here. Safe no-op if MONGO_URI is unset.
     await mongo_bridge.connect()
-    bot.loop.create_task(mongo_bridge.refresh_loop())
+    if not _background_tasks_started:
+        bot.loop.create_task(mongo_bridge.refresh_loop())
 
     # Optional background loops (defined in cogs / later in this file)
     try:
         from bot.cogs.reaction_roles import reaction_panel_post_loop
-        bot.loop.create_task(reaction_panel_post_loop())
+        if not _background_tasks_started:
+            bot.loop.create_task(reaction_panel_post_loop())
     except Exception as e:
         print(f"⚠️ reaction_panel_post_loop not started: {e}")
 
     if LEVELING_SYSTEM_ENABLED:
-        bot.loop.create_task(leaderboard_push_loop())
+        if not _background_tasks_started:
+            bot.loop.create_task(leaderboard_push_loop())
+    _background_tasks_started = True
 
 # --- GUILD LIST FRESHNESS ---
 @bot.event

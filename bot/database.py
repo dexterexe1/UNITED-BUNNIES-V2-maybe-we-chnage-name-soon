@@ -6,6 +6,8 @@ import sqlite3
 import datetime
 import discord
 
+from bot.config import REQUIRED_ROLE_ID
+
 UTC = datetime.timezone.utc
 DB_FILE = "bot_data.db"
 
