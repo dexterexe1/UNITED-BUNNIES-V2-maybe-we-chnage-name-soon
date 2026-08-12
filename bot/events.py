@@ -1,8 +1,8 @@
-from bot.ui.premium_cards import quick_card_view, style_card_view, embed_to_view
 """
 events.py — Bot lifecycle and message/member event handlers.
 Extracted from the original monolithic bot.py. Logic unchanged.
 """
+from bot.ui.premium_cards import quick_card_view, style_card_view, embed_to_view
 import discord
 from discord.ext import commands
 import discord.app_commands as app_commands

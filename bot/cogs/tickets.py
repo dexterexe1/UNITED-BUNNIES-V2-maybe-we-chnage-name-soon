@@ -468,9 +468,7 @@ async def ticket_prefix(ctx):
             return
 
     await ctx.send(
-        embed=quick_embed(
-            "🎫 What do you need help with?"
-        ),
+        content="🎫 **What do you need help with?**",
         view=TicketTypeSelectView(),
     )
 

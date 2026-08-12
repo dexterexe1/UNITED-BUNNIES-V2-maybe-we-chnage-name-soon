@@ -142,19 +142,16 @@ class ApplicationPanelView(discord.ui.View):
             "danger": discord.ButtonStyle.danger,
         }
 
-        self.add_item(
-            discord.ui.Button(
-                label=button_config.get("label", "Apply Now"),
-                style=button_style_map.get(button_config.get("style", "primary"), discord.ButtonStyle.primary),
-                emoji=button_config.get("emoji"),
-                custom_id=f"app_apply_{form_data.get('_id', '')}",
-            )
+        # Create the actual button dynamically from form config
+        apply_button = discord.ui.Button(
+            label=button_config.get("label", "Apply Now"),
+            style=button_style_map.get(button_config.get("style", "primary"), discord.ButtonStyle.primary),
+            emoji=button_config.get("emoji"),
+            custom_id=f"app_apply_{form_data.get('_id', '')}",
         )
-
-    @discord.ui.button(label="Apply", style=discord.ButtonStyle.blurple, custom_id="app_apply_placeholder", row=0)
-    async def apply_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # This is handled by the dynamic button above; this is just a placeholder
-        pass
+        
+        # The callback will be handled by on_interaction event listener
+        self.add_item(apply_button)
 
 
 class ApplicationReviewView(discord.ui.View):

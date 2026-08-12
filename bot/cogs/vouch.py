@@ -108,25 +108,27 @@ async def vouches_prefix(ctx: commands.Context, member: discord.Member = None):
     total = count_vouches(ctx.guild.id, member.id)
     recent = list_vouches(ctx.guild.id, member.id, limit=5)
 
-    embed = discord.Embed(
-        title=f"Vouches for {member.display_name}",
-        description=f"**Total:** {total}",
-        color=discord.Color.gold(),
-    )
-    embed.set_thumbnail(url=member.display_avatar.url)
-
+    # Build the description with user vouches
+    lines = [f"**✨ Total Vouches:** {total}\n"]
     if recent:
-        lines = []
+        lines.append("**Recent Vouches:**")
         for author_id, comment, created_at in recent:
             author = ctx.guild.get_member(author_id)
             author_name = author.mention if author else f"<@{author_id}>"
-            line = f"- {author_name}"
+            line = f"• {author_name}"
             if comment:
-                line += f" — {comment}"
+                line += f" — *{comment}*"
             lines.append(line)
-        embed.add_field(name="Recent", value="\n".join(lines), inline=False)
-
-    await ctx.send(view=embed_to_view(embed))
+    else:
+        lines.append("*No vouches yet*")
+    
+    embed = purple_embed(
+        title="VOUCH SYSTEM",
+        description="\n".join(lines),
+        footer=f"✨ User: @{member.display_name}",
+        thumbnail_url=member.display_avatar.url,
+    )
+    await ctx.send(embed=embed)
 
 
 @bot.hybrid_command(name="vouchleaderboard", aliases=["vouchlb"], description="Show the most-vouched users in this server")
@@ -141,14 +143,21 @@ async def vouch_leaderboard_prefix(ctx: commands.Context):
     for i, (target_id, c) in enumerate(rows, start=1):
         member = ctx.guild.get_member(target_id)
         name = member.mention if member else f"<@{target_id}>"
-        lines.append(f"**{i}.** {name} — {c} vouch(es)")
         
-    embed = discord.Embed(
-        title="🏆 Vouch Leaderboard", 
-        description="\n".join(lines), 
-        color=discord.Color.gold()
+        # Add medals for top 3
+        medal = ""
+        if i == 1: medal = "🥇 "
+        elif i == 2: medal = "🥈 "
+        elif i == 3: medal = "🥉 "
+        
+        lines.append(f"{medal}**{i}.** {name} — `{c} vouch(es)`")
+        
+    embed = purple_embed(
+        title="VOUCH LEADERBOARD",
+        description="\n".join(lines),
+        footer="✨ Top vouched members in this server"
     )
-    await ctx.send(view=embed_to_view(embed))
+    await ctx.send(embed=embed)
 
 
 # ------------- Configuration -------------
@@ -160,11 +169,12 @@ async def vouch_leaderboard_prefix(ctx: commands.Context):
 async def set_vouch_channel_prefix(ctx: commands.Context, channel: discord.TextChannel):
     """Restricts vouching and tracking to a single dedicated text channel."""
     set_vouch_channel(ctx.guild.id, channel.id)
-    embed = discord.Embed(
-        description=f"✅ Vouch channel successfully set to {channel.mention}.\n\nUsers can now chat normally here to issue auto-vouches, or use manual lookup commands.",
-        color=discord.Color.green()
+    embed = purple_embed(
+        title="VOUCH CHANNEL SET",
+        description=f"✅ Vouch channel successfully set to {channel.mention}.\n\nUsers can now chat naturally here to issue auto-vouches, or use manual lookup commands.",
+        footer="✨ Vouch system configured"
     )
-    await ctx.send(view=embed_to_view(embed))
+    await ctx.send(embed=embed)
 
 
 @bot.hybrid_command(name="clearvouchchannel", aliases=["clearvouch"], description="[Mod] Remove the vouch channel restriction")
