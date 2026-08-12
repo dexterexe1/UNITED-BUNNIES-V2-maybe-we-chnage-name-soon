@@ -42,11 +42,41 @@ import bot.events  # noqa: F401
 from bot import mongo_bridge  # noqa: F401
 
 
-def main():
-    token = os.getenv("DISCORD_TOKEN") or os.getenv("BOT_TOKEN")
-    if not token:
+def _load_token() -> str:
+    """Read bot token from env and normalize common paste mistakes."""
+    raw_name = None
+    raw = os.getenv("DISCORD_TOKEN")
+    if raw:
+        raw_name = "DISCORD_TOKEN"
+    else:
+        raw = os.getenv("BOT_TOKEN")
+        if raw:
+            raw_name = "BOT_TOKEN"
+
+    if not raw:
         print("❌ CRITICAL ERROR: DISCORD_TOKEN or BOT_TOKEN environment variable is missing!")
+        print("   On Render: Service → Environment → add DISCORD_TOKEN = (Bot token from Discord Developer Portal)")
         sys.exit(1)
+
+    token = raw.strip()
+    # Remove accidental surrounding quotes from dashboard paste
+    if (token.startswith('"') and token.endswith('"')) or (token.startswith("'") and token.endswith("'")):
+        token = token[1:-1].strip()
+
+    # Safe diagnostics (never print the full token)
+    print(f"🔑 Using env var: {raw_name}")
+    print(f"🔑 Token length: {len(token)} (typical bot tokens are ~59–72 chars)")
+    if "." not in token:
+        print("⚠️ Token has no '.' — Discord bot tokens usually look like: xxxxx.yyyyy.zzzzz")
+    if token.lower().startswith("bot "):
+        print("⚠️ Token starts with 'Bot ' — remove that prefix; pass only the raw token.")
+        token = token[4:].strip()
+
+    return token
+
+
+def main():
+    token = _load_token()
 
     # Only expose the lightweight keepalive server when the host provides a
     # web-service port. Background workers can run the bot without it.
