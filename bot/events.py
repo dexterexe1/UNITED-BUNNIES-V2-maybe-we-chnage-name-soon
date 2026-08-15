@@ -278,7 +278,7 @@ VOUCH_PATTERN = re.compile(
 # These always get a Confirm/Cancel button before running when triggered
 # without "?".
 NOPREFIX_CONFIRM_COMMANDS = {
-    "warn", "clearwarnings", "mute", "unmute", "kick", "ban", "unban", "bon",
+    "warn", "clearwarnings", "mute", "unmute", "kick", "ban", "unban", "bon", "clearrevenue",
 }
 
 async def run_message_as_command(message: discord.Message):
@@ -700,5 +700,3 @@ async def on_message(message):
 
     # Fallback: ensure any remaining prefix commands still process
     await bot.process_commands(message)
-
-
