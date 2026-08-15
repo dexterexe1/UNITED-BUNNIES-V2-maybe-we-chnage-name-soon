@@ -1,9 +1,4 @@
-"""AI-assisted Blox Fruits payment-name parser.
-
-AI is used only to identify what an entered payment name refers to. It never
-supplies or invents a price. The trusted Blox Fruits value cache remains the
-source of truth for the numeric value.
-"""
+"""AI-assisted payment parser for the revenue system."""
 from __future__ import annotations
 
 import json
@@ -13,33 +8,28 @@ from typing import Optional
 
 import aiohttp
 
-from bot.blox_values import lookup_payment, get_cached_value_names
+from bot.blox_values import get_cached_value_names, lookup_payment
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_PAYMENT_MODEL", "gemini-2.5-flash-lite")
-AI_ENABLED = os.getenv("AI_PAYMENT_PARSER_ENABLED", "true").strip().lower() in {
-    "1", "true", "yes", "on"
-}
+GEMINI_MODEL = os.getenv("GEMINI_PAYMENT_MODEL", "gemini-2.5-flash-lite").strip()
+AI_ENABLED = os.getenv("AI_PAYMENT_PARSER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _clean(text: str) -> str:
     text = text.strip().casefold()
-    text = re.sub(r"\s+", " ", text)
-    return text
+    text = re.sub(r"[^a-z0-9+]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _simple_aliases(payment: str) -> list[str]:
-    """Generate safe, deterministic aliases before asking AI."""
     raw = _clean(payment)
     candidates = [raw]
-
-    # Common staff shorthand. This is deliberately conservative.
-    for prefix in ("payment:", "payment -", "payment", "item:", "item -", "item"):
+    prefixes = ("payment:", "payment -", "payment", "item:", "item -", "item")
+    for prefix in prefixes:
         if raw.startswith(prefix):
-            stripped = raw[len(prefix):].strip(" :-")
+            stripped = raw[len(prefix):].strip(" :–-")
             if stripped:
                 candidates.append(stripped)
-
     expanded = list(candidates)
     for value in candidates:
         if value.endswith(" fruit"):
@@ -50,8 +40,6 @@ def _simple_aliases(payment: str) -> list[str]:
             expanded.append("perm " + value[10:])
         if value.startswith("physical "):
             expanded.append(value[9:].strip())
-
-    # Preserve order and uniqueness.
     return list(dict.fromkeys(x for x in expanded if x))
 
 
@@ -59,61 +47,51 @@ async def _gemini_resolve(payment: str, item_names: list[str]) -> Optional[str]:
     if not GEMINI_API_KEY or not AI_ENABLED or not item_names:
         return None
 
-    # Keep the prompt bounded even if the source site contains a large list.
-    names = sorted(set(item_names), key=str.casefold)
-    names_text = "\n".join(f"- {name}" for name in names)
-    prompt = f"""You classify a Discord revenue payment into one exact Blox Fruits item name.
+    names_text = "\n".join(f"- {name}" for name in sorted(set(item_names), key=str.casefold))
+    prompt = f"""Classify this Discord revenue payment into one exact Blox Fruits item name.
 
-User payment text:
-{payment!r}
+Payment text: {payment!r}
 
-Allowed Blox Fruits item names (choose ONLY one exact name from this list):
+Allowed item names:
 {names_text}
 
 Rules:
-- Ignore capitalization, punctuation, and harmless words such as 'fruit', 'physical', 'perm', and 'permanent' when they clearly refer to a listed item.
-- 'perm X' means the listed permanent X item when one exists; never turn it into regular X.
+- Ignore capitalization and harmless words such as fruit, physical, perm, and permanent.
+- Choose ONLY an exact item from the list.
 - If the payment is not a Blox Fruits item, return null.
-- If the text is ambiguous, return null.
-- Never invent a name.
+- If it asks for a permanent variant but no permanent value exists in the list, return null.
+- Never invent an item name.
 
-Return JSON only: {{"matched_name": "EXACT LIST NAME OR null"}}"""
+Return JSON only: {{"matched_name": "EXACT NAME OR null"}}"""
 
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    )
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0,
-            "responseMimeType": "application/json",
-        },
+        "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
     }
 
-    timeout = aiohttp.ClientTimeout(total=12)
     try:
+        timeout = aiohttp.ClientTimeout(total=12)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, json=payload) as response:
                 if response.status != 200:
-                    print(f"⚠️ AI payment parser HTTP {response.status}")
+                    body = await response.text()
+                    print(f"⚠️ AI payment parser HTTP {response.status}: {body[:250]}")
                     return None
                 data = await response.json()
-
-        text = ""
-        for candidate in data.get("candidates", []):
-            for part in candidate.get("content", {}).get("parts", []):
-                if isinstance(part.get("text"), str):
-                    text += part["text"]
+        text = "".join(
+            part.get("text", "")
+            for candidate in data.get("candidates", [])
+            for part in candidate.get("content", {}).get("parts", [])
+            if isinstance(part.get("text"), str)
+        ).strip()
         if not text:
             return None
-
-        parsed = json.loads(text.strip().strip("`").replace("json\n", "", 1))
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I)
+        parsed = json.loads(text)
         matched = parsed.get("matched_name")
-        if not isinstance(matched, str) or not matched.strip():
+        if not isinstance(matched, str) or not matched.strip() or _clean(matched) == "null":
             return None
-
-        # Never trust the model's spelling. Resolve it against the exact list.
         by_normalized = {_clean(name): name for name in item_names}
         return by_normalized.get(_clean(matched))
     except Exception as exc:
@@ -122,14 +100,12 @@ Return JSON only: {{"matched_name": "EXACT LIST NAME OR null"}}"""
 
 
 async def resolve_payment(payment: str):
-    """Resolve a payment to (value, matched_name, checked_at).
-
-    Deterministic matching is attempted first. AI is only a fallback for names
-    that are not an exact match. Non-ingame payments return (None, None, ...).
-    """
+    """Return (value, matched_name, checked_at, source)."""
+    payment = payment.strip()
     for candidate in _simple_aliases(payment):
         value, name, checked_at = await lookup_payment(candidate)
         if value is not None:
+            print(f"🤖 Payment parser: {payment!r} -> {name!r} | source=direct | value={value}")
             return value, name, checked_at, "direct"
 
     item_names = get_cached_value_names()
@@ -137,6 +113,8 @@ async def resolve_payment(payment: str):
     if matched_name:
         value, name, checked_at = await lookup_payment(matched_name)
         if value is not None:
+            print(f"🤖 Payment parser: {payment!r} -> {name!r} | source=ai | value={value}")
             return value, name, checked_at, "ai"
 
+    print(f"🤖 Payment parser: {payment!r} -> uncalculated/non-ingame")
     return None, None, None, None
