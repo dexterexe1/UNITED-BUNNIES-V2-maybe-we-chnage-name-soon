@@ -28,11 +28,11 @@ from bot.revenue_database import (
 
 # Pattern matches both @mentions and plain text names
 REVENUE_PATTERN = re.compile(
-    r"User\s*:\s*(?:<@!?(\d+)>|(.+?))(?:\n|$).*?"
-    r"Service\s*:\s*(.+?)(?:\n|$).*?"
-    r"Payment\s*:\s*(.+?)(?:\n|$).*?"
-    r"Paid\s*to\s*:\s*(?:<@!?(\d+)>|(.+?))(?:\n|$).*?"
-    r"(?:Done\s*by\s*:\s*(?:<@!?(\d+)>|(.+?))(?:\n|$))?",
+    r"User\s*:\s*(?:<@!?(\d+)>|([^\n]+?))(?:\n|$).*?"
+    r"Service\s*:\s*([^\n]+?)(?:\n|$).*?"
+    r"Payment\s*:\s*([^\n]+?)(?:\n|$).*?"
+    r"Paid\s*to\s*:\s*(?:<@!?(\d+)>|([^\n]+?))(?:\n|$).*?"
+    r"(?:Done\s*by\s*:\s*(?:<@!?(\d+)>|([^\n]+?))(?:\n|$))?",
     re.IGNORECASE | re.DOTALL
 )
 
