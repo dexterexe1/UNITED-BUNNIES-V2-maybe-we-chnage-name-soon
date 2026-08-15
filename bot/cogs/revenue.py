@@ -14,7 +14,8 @@ from bot.config import (
     bot, style_embed, BRAND_COLOR, UTC, staff_check, is_staff,
     EMOJI_BULLET, BRAND_EMOJI
 )
-from bot.blox_values import format_value, lookup_payment, refresh_blox_values, cache_status
+from bot.blox_values import format_value, refresh_blox_values, cache_status
+from bot.ai_payment_parser import resolve_payment
 
 from bot.revenue_database import (
     add_revenue_entry, get_revenue_entries, get_revenue_summary,
@@ -152,10 +153,11 @@ async def validate_and_record_revenue(message: discord.Message):
     payment_value = None
     payment_value_name = None
     payment_value_checked_at = None
+    payment_source = None
     try:
-        payment_value, payment_value_name, payment_value_checked_at = await lookup_payment(payment_method)
+        payment_value, payment_value_name, payment_value_checked_at, payment_source = await resolve_payment(payment_method)
     except Exception as value_error:
-        print(f"⚠️ Blox Fruits value lookup failed: {value_error}")
+        print(f"⚠️ Payment parser failed: {value_error}")
 
     # Record in database
     try:
@@ -177,8 +179,22 @@ async def validate_and_record_revenue(message: discord.Message):
         
         # React to confirm
         await message.add_reaction("✅")
-        await message.add_reaction("💰")
-        
+        if payment_value is not None:
+            await message.add_reaction("💰")
+            confirmation = await message.channel.send(
+                f"💰 {message.author.mention} **Payment Calculated**\n"
+                f"`{payment_method}` → **{payment_value_name or payment_method}**\n"
+                f"Value: `{format_value(float(payment_value))}`\n"
+                f"Source: `{payment_source or 'direct'}`",
+                delete_after=10,
+            )
+        else:
+            confirmation = await message.channel.send(
+                f"ℹ️ {message.author.mention} **Payment Recorded**\n"
+                f"`{payment_method}` is not a recognized Blox Fruits value item, so it was saved as **Uncalculated / Non-Ingame Payment**.",
+                delete_after=10,
+            )
+
     except Exception as e:
         print(f"❌ Error recording revenue: {e}")
         try:
@@ -308,11 +324,41 @@ async def all_revenue(ctx: commands.Context):
     await generate_revenue_report(ctx, days=None, period_name="All-Time")
 
 
+async def _backfill_missing_payment_values(entries):
+    """Re-check older MongoDB entries that were previously saved without a value."""
+    changed = 0
+    for entry in entries:
+        if entry.get("payment_value") is not None:
+            continue
+        payment = str(entry.get("payment") or "").strip()
+        if not payment:
+            continue
+        try:
+            value, name, checked_at, _source = await resolve_payment(payment)
+        except Exception:
+            continue
+        if value is None:
+            continue
+        entry["payment_value"] = value
+        entry["payment_value_name"] = name
+        entry["payment_value_checked_at"] = checked_at
+        try:
+            from bot.revenue_database import update_revenue_payment_value
+            if await update_revenue_payment_value(entry.get("_id"), value, name, checked_at):
+                changed += 1
+        except Exception as exc:
+            print(f"⚠️ Could not backfill revenue entry: {exc}")
+    if changed:
+        print(f"♻️ Backfilled {changed} revenue payment value(s)")
+    return entries
+
+
 async def generate_revenue_report(ctx: commands.Context, days: int = None, period_name: str = "Revenue"):
     """Generate a formatted revenue report grouped by staff and showing services provided."""
     
     # Get all entries
     entries = await get_revenue_entries(ctx.guild.id, days=days)
+    entries = await _backfill_missing_payment_values(entries)
     
     if not entries:
         embed = style_embed(
