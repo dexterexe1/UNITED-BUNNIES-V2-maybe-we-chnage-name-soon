@@ -268,6 +268,30 @@ async def clear_revenue_data(guild_id: int) -> int:
         return 0
 
 
+async def update_revenue_payment_value(
+    entry_id,
+    payment_value: float,
+    payment_value_name: Optional[str],
+    payment_value_checked_at: Optional[datetime.datetime],
+) -> bool:
+    """Backfill a calculated payment value on an existing revenue entry."""
+    if db is None or entry_id is None:
+        return False
+    try:
+        result = await db["revenue_entries"].update_one(
+            {"_id": entry_id},
+            {"$set": {
+                "payment_value": float(payment_value),
+                "payment_value_name": payment_value_name,
+                "payment_value_checked_at": payment_value_checked_at,
+            }}
+        )
+        return result.modified_count > 0 or result.matched_count > 0
+    except Exception as e:
+        print(f"⚠️ Failed to backfill revenue payment value: {e}")
+        return False
+
+
 async def get_total_entries_count(guild_id: int) -> int:
     """Get total number of revenue entries for a guild."""
     if db is None:
