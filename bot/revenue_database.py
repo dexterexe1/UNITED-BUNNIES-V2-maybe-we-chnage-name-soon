@@ -11,7 +11,7 @@ UTC = datetime.timezone.utc
 
 # MongoDB connection - use same env var as mongo_bridge.py
 MONGO_URI = os.getenv("MONGO_URI") or os.getenv("MONGODB_URL")
-MONGO_DB = os.getenv("MONGO_DB", "united_bunnies")
+MONGO_DB = os.getenv("MONGO_DB", "bunnydb")  # Use same default as mongo_bridge.py
 
 client = None
 db: AsyncIOMotorDatabase = None
