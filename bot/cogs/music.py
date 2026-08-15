@@ -12,7 +12,7 @@ import shutil
 import os
 
 from bot.config import (
-    bot, quick_embed, song_queues, now_playing, song_volumes, loop_modes,
+    bot, style_embed, song_queues, now_playing, song_volumes, loop_modes,
 )
 from bot.database import add_liked_song, get_liked_songs, clear_liked_songs
 
