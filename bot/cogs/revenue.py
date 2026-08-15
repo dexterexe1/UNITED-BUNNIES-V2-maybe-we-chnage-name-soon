@@ -453,23 +453,29 @@ async def revenue_via_staff(ctx: commands.Context, *, staff_name: str, days: int
     staff_entries = []
     matched_staff_name = None
     
-    for user_id, user_name, service, payment_method, paid_to_id, paid_to_name, done_by_id, done_by_name, recorded_by_id, created_at in all_entries:
-        # Get staff name for this entry
-        if paid_to_id and paid_to_id != 0:
-            staff_member = ctx.guild.get_member(paid_to_id)
-            entry_staff_name = staff_member.display_name if staff_member else paid_to_name
-        else:
-            entry_staff_name = paid_to_name
+    for entry in all_entries:
+        # Extract fields from dictionary
+        user_name = entry.get("user_name", "Unknown")
+        service = entry.get("service", "Unknown")
+        payment_method = entry.get("payment", "Unknown")
+        paid_to_name = entry.get("paid_to", "Unknown")
+        done_by_name = entry.get("done_by_name")
+        timestamp = entry.get("timestamp")
         
         # Check if this matches our search (case-insensitive)
-        # Also check "done_by" field
-        staff_match = entry_staff_name and staff_name.lower() in entry_staff_name.lower()
+        # Check both "paid_to" and "done_by" fields
+        staff_match = paid_to_name and staff_name.lower() in paid_to_name.lower()
         done_by_match = done_by_name and staff_name.lower() in done_by_name.lower()
         
         if staff_match or done_by_match:
-            staff_entries.append((user_id, user_name, service, payment_method, created_at))
+            staff_entries.append({
+                "user_name": user_name,
+                "service": service,
+                "payment": payment_method,
+                "timestamp": timestamp
+            })
             if not matched_staff_name:
-                matched_staff_name = entry_staff_name
+                matched_staff_name = paid_to_name
     
     if not staff_entries:
         embed = style_embed(
@@ -485,10 +491,14 @@ async def revenue_via_staff(ctx: commands.Context, *, staff_name: str, days: int
     payments_count = defaultdict(int)
     clients = set()
     
-    for user_id, user_name, service, payment_method, created_at in staff_entries:
+    for entry in staff_entries:
+        user_name = entry["user_name"]
+        service = entry["service"]
+        payment_method = entry["payment"]
+        
         services_count[service] += 1
         payments_count[payment_method] += 1
-        clients.add(user_name if user_name else user_id)
+        clients.add(user_name)
     
     total_sales = len(staff_entries)
     
