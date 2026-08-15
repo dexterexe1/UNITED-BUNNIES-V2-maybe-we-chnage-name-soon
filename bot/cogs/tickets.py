@@ -421,7 +421,7 @@ class TicketPanelView(discord.ui.View):
     aliases=["tp"],
     description="[Staff] Post a button-based ticket-creation panel",
 )
-@commands.has_role(REQUIRED_ROLE_ID)
+@staff_check("admin")
 async def ticket_panel_prefix(ctx):
     embed = discord.Embed(
         title="🎫 Support Tickets",
@@ -528,7 +528,7 @@ async def close_ticket_prefix(ctx):
     aliases=["ticketlist"],
     description="[Staff] List all currently open tickets",
 )
-@commands.has_role(REQUIRED_ROLE_ID)
+@staff_check("admin")
 async def list_tickets_prefix(ctx):
     rows = list_open_tickets(
         ctx.guild.id
