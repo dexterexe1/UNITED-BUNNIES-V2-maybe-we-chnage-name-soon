@@ -1,8 +1,4 @@
 
-
-
-
-
 """
 revenue.py — Revenue Tracking System for Service Servers
 Auto-detects revenue reports, validates format, and generates reports.
