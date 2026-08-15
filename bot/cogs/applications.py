@@ -364,7 +364,7 @@ async def control_panel_prefix(ctx):
         ),
         color=0x2f3136,
     )
-    embed.set_footer(text="⚡ Vortex System Active 🌟")
+    embed.set_footer(text="🐰 United Bunnies System Active ✨")
     await ctx.send(embed=embed, view=ControlPanelView())
 
 @mod_group.command(name="panel", description="🕹️ Post the interactive server control panel.")
@@ -382,7 +382,7 @@ async def control_panel_slash(interaction: discord.Interaction):
         ),
         color=0x2f3136,
     )
-    embed.set_footer(text="⚡ Vortex System Active 🌟")
+    embed.set_footer(text="🐰 United Bunnies System Active ✨")
     await interaction.response.send_message(embed=embed, view=ControlPanelView())
 
 

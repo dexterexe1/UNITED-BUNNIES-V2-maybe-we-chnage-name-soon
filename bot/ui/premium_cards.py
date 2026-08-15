@@ -1,6 +1,6 @@
 import discord
 
-# Vortex brand palette - PREMIUM PURPLE THEME
+# United Bunnies brand palette - PREMIUM PURPLE THEME
 PURPLE = 0x9B59B6           # Main brand purple
 DEEP_PURPLE = 0x6C3483      # Dark purple accent
 GRADIENT_PURPLE = 0x8B5CF6  # Vibrant gradient purple (matches the image)
@@ -142,7 +142,7 @@ def quick_card_view(text: str, *, title: str | None = None) -> discord.ui.Layout
         default_title = "NOTICE"
     else:
         kind = "info"
-        default_title = "VORTEX"
+        default_title = "UNITED BUNNIES"
 
     return premium_card_view(
         title=title or default_title,
@@ -180,7 +180,7 @@ def embed_to_view(embed: discord.Embed) -> discord.ui.LayoutView:
     Used as a safe compatibility bridge for the bot's older commands while
     keeping the existing message content, fields and images.
     """
-    title = embed.title or "VORTEX"
+    title = embed.title or "UNITED BUNNIES"
     description = embed.description
     fields = [(f.name, f.value, f.inline) for f in embed.fields]
     footer = embed.footer.text if embed.footer else None

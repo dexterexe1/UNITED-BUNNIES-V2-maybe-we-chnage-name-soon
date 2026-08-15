@@ -100,7 +100,7 @@ class DashboardLinks(discord.ui.View):
 @has_required_slash_role()
 async def dashboard_slash(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="📊 Server: VORTEX",
+        title="📊 Server: UNITED BUNNIES",
         description="__**Commands start with `?`**__\nManage everything below from the web dashboard, or jump into support if you need a hand.",
         color=BRAND_COLOR,
         timestamp=datetime.datetime.now(UTC),
@@ -149,7 +149,7 @@ async def p_prefix(ctx, *, text: str):
             lines = part.split('\n', 1)
             main_embed.add_field(name=lines[0].strip(), value=lines[1].strip() if len(lines) > 1 else "...", inline=False)
 
-    main_embed.set_footer(text="⚡ Vortex System Active 🌟")
+    main_embed.set_footer(text="🐰 United Bunnies System Active ✨")
     main_embed.set_image(url=image_urls[0])
     embeds.append(main_embed)
 
@@ -355,7 +355,7 @@ HELP_CATEGORIES = {
 }
 
 
-HELP_HOME_TITLE = "⚡ ── VORTEX HELP ── ⚡"
+HELP_HOME_TITLE = "🐰 ── UNITED BUNNIES HELP ── 🐰"
 HELP_HOME_DESCRIPTION = (
     "__**Welcome to the Command Center.**__\n"
     "Pick a category from the dropdown below to see what's inside, or use the "
@@ -373,7 +373,7 @@ def build_help_home_embed() -> discord.Embed:
     )
     category_list = "\n".join(f"{c['emoji']} **{c['label']}**" for c in HELP_CATEGORIES.values())
     embed.add_field(name="📂 Categories", value=category_list, inline=False)
-    embed.set_footer(text="Vortex • Use the menu below to browse commands")
+    embed.set_footer(text="United Bunnies • Use the menu below to browse commands")
     return embed
 
 
@@ -387,7 +387,7 @@ def build_help_category_embed(key: str) -> discord.Embed:
     )
     for name, value in cat["fields"]:
         embed.add_field(name=f"__**{name}**__", value=value, inline=False)
-    embed.set_footer(text="Vortex • Use the menu below to browse other categories")
+    embed.set_footer(text="United Bunnies • Use the menu below to browse other categories")
     return embed
 
 

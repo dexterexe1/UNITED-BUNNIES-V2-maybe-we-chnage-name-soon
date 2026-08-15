@@ -43,6 +43,8 @@ def init_db():
         cursor.execute("ALTER TABLE server_config ADD COLUMN levelup_channel_id INTEGER DEFAULT NULL")
     if "levels_enabled" not in existing_cols:
         cursor.execute("ALTER TABLE server_config ADD COLUMN levels_enabled INTEGER DEFAULT 0")
+    if "revenue_channel_id" not in existing_cols:
+        cursor.execute("ALTER TABLE server_config ADD COLUMN revenue_channel_id INTEGER DEFAULT NULL")
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS noprefix_users (
             guild_id INTEGER NOT NULL,
@@ -176,6 +178,39 @@ def init_db():
         channel_id INTEGER NOT NULL,
         message_id INTEGER,
         config TEXT
+    )
+    """)
+    
+    # Revenue Tracking System
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS revenue_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        user_name TEXT,
+        service TEXT NOT NULL,
+        payment_method TEXT NOT NULL,
+        paid_to_id INTEGER NOT NULL,
+        paid_to_name TEXT,
+        done_by_id INTEGER DEFAULT 0,
+        done_by_name TEXT,
+        recorded_by_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """)
+    
+    # Bot Control System
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS bot_owners (
+        user_id INTEGER PRIMARY KEY,
+        username TEXT NOT NULL
+    )
+    """)
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS bot_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
     )
     """)
     
@@ -869,3 +904,267 @@ def clear_vouch_channel(guild_id: int):
     cursor.execute("UPDATE server_config SET vouch_channel_id = NULL WHERE guild_id = ?", (guild_id,))
     conn.commit()
     conn.close()
+
+
+# ================= REVENUE TRACKING SYSTEM =================
+def add_revenue_entry(guild_id: int, user_id: int, user_name: str, service: str, payment_method: str, paid_to_id: int, paid_to_name: str, done_by_id: int, done_by_name: str, recorded_by_id: int):
+    """Add a new revenue entry to the database."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO revenue_entries (guild_id, user_id, user_name, service, payment_method, paid_to_id, paid_to_name, done_by_id, done_by_name, recorded_by_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (guild_id, user_id, user_name, service, payment_method, paid_to_id, paid_to_name, done_by_id, done_by_name, recorded_by_id, datetime.datetime.now(UTC).isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+def get_revenue_entries(guild_id: int, days: int = None, start_date: str = None, end_date: str = None):
+    """Get revenue entries with optional date filtering.
+    
+    Args:
+        guild_id: Server ID
+        days: Number of days to look back (e.g., 7 for week, 30 for month)
+        start_date: ISO format start date (overrides days)
+        end_date: ISO format end date (overrides days)
+    """
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    if start_date and end_date:
+        cursor.execute(
+            """
+            SELECT user_id, user_name, service, payment_method, paid_to_id, paid_to_name, done_by_id, done_by_name, recorded_by_id, created_at
+            FROM revenue_entries
+            WHERE guild_id = ? AND created_at BETWEEN ? AND ?
+            ORDER BY created_at DESC
+            """,
+            (guild_id, start_date, end_date)
+        )
+    elif days:
+        cutoff = (datetime.datetime.now(UTC) - datetime.timedelta(days=days)).isoformat()
+        cursor.execute(
+            """
+            SELECT user_id, user_name, service, payment_method, paid_to_id, paid_to_name, done_by_id, done_by_name, recorded_by_id, created_at
+            FROM revenue_entries
+            WHERE guild_id = ? AND created_at >= ?
+            ORDER BY created_at DESC
+            """,
+            (guild_id, cutoff)
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT user_id, user_name, service, payment_method, paid_to_id, paid_to_name, done_by_id, done_by_name, recorded_by_id, created_at
+            FROM revenue_entries
+            WHERE guild_id = ?
+            ORDER BY created_at DESC
+            """,
+            (guild_id,)
+        )
+    
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def get_revenue_summary_by_staff(guild_id: int, days: int = None):
+    """Get revenue summary grouped by staff member (paid_to)."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    if days:
+        cutoff = (datetime.datetime.now(UTC) - datetime.timedelta(days=days)).isoformat()
+        cursor.execute(
+            """
+            SELECT paid_to_id, paid_to_name, payment_method, COUNT(*) as count
+            FROM revenue_entries
+            WHERE guild_id = ? AND created_at >= ?
+            GROUP BY paid_to_id, paid_to_name, payment_method
+            ORDER BY paid_to_id, paid_to_name, payment_method
+            """,
+            (guild_id, cutoff)
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT paid_to_id, paid_to_name, payment_method, COUNT(*) as count
+            FROM revenue_entries
+            WHERE guild_id = ?
+            GROUP BY paid_to_id, paid_to_name, payment_method
+            ORDER BY paid_to_id, paid_to_name, payment_method
+            """,
+            (guild_id,)
+        )
+    
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def get_revenue_channel(guild_id: int):
+    """Get the revenue tracking channel ID for this server."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT revenue_channel_id FROM server_config WHERE guild_id = ?", (guild_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
+
+def set_revenue_channel(guild_id: int, channel_id: int):
+    """Set the revenue tracking channel for this server."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO server_config (guild_id, welcome_channel_id, log_channel_id, revenue_channel_id)
+        VALUES (?, 0, 0, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET revenue_channel_id = ?
+    """, (guild_id, channel_id, channel_id))
+    conn.commit()
+    conn.close()
+
+def clear_revenue_channel(guild_id: int):
+    """Clear the revenue tracking channel for this server."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE server_config SET revenue_channel_id = NULL WHERE guild_id = ?", (guild_id,))
+    conn.commit()
+    conn.close()
+
+
+# ================= BOT CONTROL SYSTEM =================
+def add_bot_owner(user_id: int, username: str):
+    """Add a bot owner."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO bot_owners (user_id, username) VALUES (?, ?)", (user_id, username))
+    conn.commit()
+    conn.close()
+
+def remove_bot_owner(user_id: int) -> bool:
+    """Remove a bot owner. Returns True if removed, False if not found."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM bot_owners WHERE user_id = ?", (user_id,))
+    changed = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return changed
+
+def is_bot_owner(user_id: int) -> bool:
+    """Check if user is a bot owner."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM bot_owners WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row is not None
+
+def get_bot_owners():
+    """Get all bot owners. Returns list of (user_id, username) tuples."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, username FROM bot_owners")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+# ================= REVENUE MANAGER SYSTEM =================
+def add_revenue_manager(guild_id: int, user_id: int, username: str):
+    """Add a revenue manager for a guild."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR IGNORE INTO revenue_managers (guild_id, user_id, username, added_at) VALUES (?, ?, ?, ?)", 
+                   (guild_id, user_id, username, datetime.datetime.now(UTC).isoformat()))
+    conn.commit()
+    conn.close()
+
+def remove_revenue_manager(guild_id: int, user_id: int) -> bool:
+    """Remove a revenue manager. Returns True if removed, False if not found."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM revenue_managers WHERE guild_id = ? AND user_id = ?", (guild_id, user_id))
+    changed = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return changed
+
+def get_revenue_managers(guild_id: int):
+    """Get all revenue managers for a guild. Returns list of (user_id, username) tuples."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, username FROM revenue_managers WHERE guild_id = ?", (guild_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def get_all_revenue_managers():
+    """Get all revenue managers across all guilds. Returns list of (guild_id, user_id, username, added_at) tuples."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT guild_id, user_id, username, added_at FROM revenue_managers")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def update_last_reminder(guild_id: int, user_id: int):
+    """Update the last reminder timestamp for a revenue manager."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE revenue_managers SET last_reminder = ? WHERE guild_id = ? AND user_id = ?",
+                   (datetime.datetime.now(UTC).isoformat(), guild_id, user_id))
+    conn.commit()
+    conn.close()
+
+
+# ================= BOT SETTINGS =================
+def is_owner_only_mode() -> bool:
+    """Check if bot is in owner-only mode."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM bot_settings WHERE key = 'owner_only_mode'")
+    row = cursor.fetchone()
+    conn.close()
+    return row and row[0] == '1'
+
+def set_owner_only_mode(enabled: bool):
+    """Set owner-only mode on/off."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO bot_settings (key, value) VALUES ('owner_only_mode', ?)
+        ON CONFLICT(key) DO UPDATE SET value = ?
+    """, ('1' if enabled else '0', '1' if enabled else '0'))
+    conn.commit()
+    conn.close()
+
+def is_noprefix_enabled() -> bool:
+    """Check if no-prefix system is enabled."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM bot_settings WHERE key = 'noprefix_enabled'")
+    row = cursor.fetchone()
+    conn.close()
+    # Default to enabled (True) if not set
+    return not row or row[0] == '1'
+
+def set_noprefix_enabled(enabled: bool):
+    """Enable/disable no-prefix system."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO bot_settings (key, value) VALUES ('noprefix_enabled', ?)
+        ON CONFLICT(key) DO UPDATE SET value = ?
+    """, ('1' if enabled else '0', '1' if enabled else '0'))
+    conn.commit()
+    conn.close()
+
+def list_disabled_features(guild_id: int, type: str = 'command'):
+    """List all disabled features for a guild. Returns list of feature names."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT feature_name FROM disabled_features WHERE guild_id = ? AND type = ?", (guild_id, type))
+    rows = cursor.fetchall()
+    conn.close()
+    return [r[0] for r in rows]

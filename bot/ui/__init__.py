@@ -1,1 +1,1 @@
-"""Shared UI components for Vortex."""
+"""Shared UI components for United Bunnies."""

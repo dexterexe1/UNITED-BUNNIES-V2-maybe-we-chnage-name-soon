@@ -34,6 +34,9 @@ import bot.cogs.vouch  # noqa: F401
 import bot.cogs.applications  # noqa: F401
 import bot.cogs.community  # noqa: F401
 import bot.cogs.mod_slash  # noqa: F401
+import bot.cogs.revenue  # noqa: F401  # Revenue tracking system
+import bot.cogs.bot_control  # noqa: F401  # Bot control & owner system
+import bot.cogs.role_info  # noqa: F401  # Role information commands
 
 # Events (on_ready, on_message, member join/leave, message log, etc.)
 import bot.events  # noqa: F401

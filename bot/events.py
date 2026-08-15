@@ -408,6 +408,15 @@ async def leaderboard_push_loop():
 async def on_message(message):
     if message.author.bot or not message.guild:
         return
+    
+    # --- REVENUE TRACKING AUTO-DETECTION ---
+    # Check revenue reports FIRST before any other processing
+    try:
+        from bot.cogs.revenue import validate_and_record_revenue
+        if await validate_and_record_revenue(message):
+            return  # Message was a revenue report, already handled
+    except Exception as e:
+        print(f"⚠️ Revenue validation error: {e}")
 
     if message.author.id in afk_users:
         data = afk_users.pop(message.author.id)
@@ -520,14 +529,18 @@ async def on_message(message):
     # "kiss @user" or "ban @user spamming". Moderation-impact commands
     # still require a click-to-confirm step since there's no prefix to
     # signal "this is a command" and mistakes here are hard to undo.
-    first_word = message.content.strip().split(" ")[0].lower() if message.content.strip() else ""
-    candidate_command = bot.get_command(first_word) if first_word else None
-    if candidate_command and has_noprefix_perm(message.guild, message.author):
-        if first_word in NOPREFIX_CONFIRM_COMMANDS:
-            await send_noprefix_confirmation(message, first_word)
-        else:
-            await run_message_as_command(message)
-        return
+    
+    # Check if no-prefix system is globally enabled
+    from bot.database import is_noprefix_enabled
+    if is_noprefix_enabled():
+        first_word = message.content.strip().split(" ")[0].lower() if message.content.strip() else ""
+        candidate_command = bot.get_command(first_word) if first_word else None
+        if candidate_command and has_noprefix_perm(message.guild, message.author):
+            if first_word in NOPREFIX_CONFIRM_COMMANDS:
+                await send_noprefix_confirmation(message, first_word)
+            else:
+                await run_message_as_command(message)
+            return
 
     # Staff with Manage Messages skip automod, but MUST still run prefix commands.
     if message.author.guild_permissions.manage_messages:

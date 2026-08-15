@@ -38,15 +38,15 @@ INVITE_URL = os.getenv(
 )
 
 # --- BRAND COLOR ---
-BRAND_COLOR = 0x8B5CF6  # Vortex gradient purple
+BRAND_COLOR = 0x8B5CF6  # United Bunnies purple
 
 # --- BRAND EMOJI ---
 # Replace these with your actual server custom emojis once you have them.
 # Get the full string by typing \:youremoji: in Discord chat.
-# Example: EMOJI_DIAMOND = "<:vortex_diamond:1234567890123456789>"
+# Example: EMOJI_DIAMOND = "<:unitedbunnies_diamond:1234567890123456789>"
 EMOJI_DIAMOND = "◈"       # title decorator — swap with your custom emoji
 EMOJI_BULLET  = "›"       # field bullet   — swap with your custom emoji
-BRAND_EMOJI   = "<:vortex:1537015506341462047>"  # Used in titles/footers
+BRAND_EMOJI   = "🐰"  # Used in titles/footers (replace with your custom bunny emoji)
 
 
 def style_embed(
