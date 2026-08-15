@@ -11,7 +11,7 @@ import datetime
 import aiohttp
 
 from bot.config import (
-    bot, quick_embed, UTC, has_required_slash_role, mod_group,
+    bot, style_embed, UTC, has_required_slash_role, mod_group,
     now_playing, staff_check,
     BOT_API_SECRET, DASHBOARD_URL,
 )

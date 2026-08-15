@@ -13,7 +13,7 @@ import re
 import time
 
 from bot.config import (
-    bot, quick_embed, style_embed, UTC, BRAND_COLOR,
+    bot, style_embed, style_embed, UTC, BRAND_COLOR,
     user_message_cooldowns, afk_users, _recent_messages,
     xp_cooldowns, XP_COOLDOWN_SECONDS, XP_MIN, XP_MAX,
     LEVELING_SYSTEM_ENABLED,

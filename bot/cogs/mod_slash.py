@@ -8,7 +8,7 @@ from discord.ext import commands
 import discord.app_commands as app_commands
 import datetime
 
-from bot.config import bot, quick_embed, UTC, mod_group, has_required_slash_role, staff_check
+from bot.config import bot, style_embed, UTC, mod_group, has_required_slash_role, staff_check
 from bot.cogs.community import build_help_home_embed, HelpView
 from bot.database import (
     set_config, get_config,

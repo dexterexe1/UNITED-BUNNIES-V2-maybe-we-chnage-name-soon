@@ -13,7 +13,7 @@ import datetime
 import asyncio
 import re
 
-from bot.config import bot, quick_embed, TICKET_CATEGORY_NAME, UTC, staff_check
+from bot.config import bot, style_embed, TICKET_CATEGORY_NAME, UTC, staff_check
 from bot.database import (
     create_ticket_record,
     close_ticket_record,

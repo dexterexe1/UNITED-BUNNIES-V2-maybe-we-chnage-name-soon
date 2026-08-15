@@ -9,7 +9,7 @@ import discord.app_commands as app_commands
 import datetime
 import random
 
-from bot.config import bot, quick_embed, style_embed, staff_check, is_staff, UTC, EMOJI_BULLET
+from bot.config import bot, style_embed, style_embed, staff_check, is_staff, UTC, EMOJI_BULLET
 from bot.database import (
     get_warnings, update_warnings, reset_warnings,
 )

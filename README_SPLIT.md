@@ -12,7 +12,7 @@ artifacts/
 ├── bot_monolith_original.py   # full original backup
 └── bot/
     ├── main.py                # entry point
-    ├── config.py              # bot instance, intents, constants, quick_embed
+    ├── config.py              # bot instance, intents, constants, style_embed
     ├── database.py            # all SQLite helpers + init_db
     ├── status.py              # keepalive + publish_bot_status
     ├── checks.py              # global command permission check

@@ -8,7 +8,7 @@ from discord.ext import commands
 import discord.app_commands as app_commands
 import datetime
 
-from bot.config import bot, quick_embed, UTC
+from bot.config import bot, style_embed, UTC
 from bot.database import get_marriage, create_marriage, delete_marriage
 from bot.cogs.community import send_gif_embed
 

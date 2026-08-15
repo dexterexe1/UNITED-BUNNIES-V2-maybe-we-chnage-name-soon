@@ -11,7 +11,7 @@ import datetime
 import re
 import sqlite3
 
-from bot.config import bot, quick_embed, UTC, is_staff, staff_check
+from bot.config import bot, style_embed, UTC, is_staff, staff_check
 from bot.database import (
     DB_FILE,
     add_vouch, remove_last_vouch, count_vouches, list_vouches, vouch_leaderboard,

@@ -14,7 +14,7 @@ Your bot now matches the beautiful purple aesthetic from the reference image:
 1. **tickets.py** (CRASH FIX)
    - ✅ Fixed truncated `list_tickets_prefix` command (missing closing parenthesis)
    - ✅ This was causing a SyntaxError preventing the entire tickets cog from loading
-   - ✅ Replaced incompatible `quick_embed` usage with plain text for Components V2
+   - ✅ Replaced incompatible `style_embed` usage with plain text for Components V2
 
 2. **applications.py** 
    - ✅ Removed duplicate placeholder button that was creating conflicts
@@ -67,7 +67,7 @@ All embeds across your entire bot now feature:
 |------|---------|
 | `bot/ui/premium_cards.py` | • Added `GRADIENT_PURPLE` color<br>• Created `purple_embed()` function<br>• Updated `_accent()` to use purple gradient<br>• Auto-adds ✨ sparkles to titles |
 | `bot/cogs/vouch.py` | • Moved docstring to top<br>• All commands use `purple_embed()`<br>• Added medals to leaderboard<br>• Premium aesthetic throughout |
-| `bot/cogs/tickets.py` | • **CRITICAL**: Fixed truncated function<br>• Replaced `quick_embed` with plain text |
+| `bot/cogs/tickets.py` | • **CRITICAL**: Fixed truncated function<br>• Replaced `style_embed` with plain text |
 | `bot/cogs/applications.py` | • Removed duplicate button decorator |
 | `bot/cogs/community.py` | • Moved docstring to top<br>• Removed ~70 lines of duplicate code |
 | `bot/cogs/music.py` | • Moved docstring to top<br>• Auto-detecting ffmpeg path (cross-platform)<br>• Added imports for `shutil` & `os` |

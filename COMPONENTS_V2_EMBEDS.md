@@ -16,7 +16,7 @@ support was added in discord.py 2.6.
 - `style_card_view()`
 - `premium_card_view()`
 
-Commands using `quick_embed()` / `style_embed()` in send calls were migrated to
+Commands using `style_embed()` / `style_embed()` in send calls were migrated to
 the Components V2 versions.
 
 Custom rich embeds that are built manually with `discord.Embed(...)` are not

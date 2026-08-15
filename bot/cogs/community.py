@@ -13,7 +13,7 @@ import re
 import requests
 
 from bot.config import (
-    bot, quick_embed, style_embed, UTC, BRAND_COLOR,
+    bot, style_embed, style_embed, UTC, BRAND_COLOR,
     afk_users,
     SUPPORT_SERVER_URL, DASHBOARD_URL, INVITE_URL, GIPHY_API_KEY, fetch_giphy_gif_url,
     has_required_slash_role, mod_group, LEVELING_SYSTEM_ENABLED, EMOJI_BULLET, staff_check,

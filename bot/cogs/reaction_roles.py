@@ -9,7 +9,7 @@ import discord.app_commands as app_commands
 import asyncio
 import re
 
-from bot.config import bot, quick_embed, staff_check
+from bot.config import bot, style_embed, staff_check
 from bot.database import (
     add_reaction_role, remove_reaction_role, get_reaction_role,
     add_role_menu_items, get_role_menu_items, get_all_role_menu_message_ids,
