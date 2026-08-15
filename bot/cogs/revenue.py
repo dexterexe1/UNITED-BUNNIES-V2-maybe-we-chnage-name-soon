@@ -1,3 +1,6 @@
+
+
+
 """
 revenue.py — Revenue Tracking System for Service Servers
 Auto-detects revenue reports, validates format, and generates reports.
@@ -13,6 +16,8 @@ from bot.config import (
     bot, style_embed, BRAND_COLOR, UTC, staff_check, is_staff,
     EMOJI_BULLET, BRAND_EMOJI
 )
+from bot.blox_values import format_value, lookup_payment, refresh_blox_values, cache_status
+
 from bot.revenue_database import (
     add_revenue_entry, get_revenue_entries, get_revenue_summary,
     get_revenue_channel, set_revenue_channel, clear_revenue_channel,
@@ -21,8 +26,8 @@ from bot.revenue_database import (
 
 # Expected format (FLEXIBLE):
 # User : @username OR User : plain_name
-# Service : service_name (e.g., leopard, tiger, dough)
-# Payment : payment_method (e.g., portal, cashapp, robux)
+# Service : service_name (your internal service name)
+# Payment : payment/item received (Blox Fruits value item OR non-ingame payment)
 # Paid to : @staff_member OR Paid to : plain_name
 # Done by : @helper OR helper_name (OPTIONAL - for team sales)
 
@@ -40,8 +45,8 @@ CORRECT_FORMAT = """
 **Correct Format:**
 ```
 User : @username OR customer_name
-Service : fruit_name (e.g., leopard, tiger, dough)
-Payment : payment_method (e.g., portal, cashapp, robux)
+Service : service_name (e.g., trials, raids, leveling)
+Payment : payment/item (e.g., Leopard, Dough, Cashapp)
 Paid to : @staff OR staff_name
 Done by : @helper OR helper_name (OPTIONAL)
 ```
@@ -49,15 +54,15 @@ Done by : @helper OR helper_name (OPTIONAL)
 **Examples:**
 ```
 User : @HINATA
-Service : leopard
-Payment : portal
+Service : trials/raids
+Payment : Leopard
 Paid to : @Roger
 ```
 
 ```
 User : HINATA
-Service : tiger premium
-Payment : cashapp
+Service : raids
+Payment : Cashapp
 Paid to : Roger
 Done by : Detrox
 ```
@@ -143,6 +148,17 @@ async def validate_and_record_revenue(message: discord.Message):
         done_by_id = 0
         done_by_display = done_by_name
     
+    # Only PAYMENT is checked against Blox Fruits Values. SERVICE is never used
+    # for value calculation. Unknown/non-ingame payments are intentionally
+    # left uncalculated; spelling mistakes are not fuzzy-matched.
+    payment_value = None
+    payment_value_name = None
+    payment_value_checked_at = None
+    try:
+        payment_value, payment_value_name, payment_value_checked_at = await lookup_payment(payment_method)
+    except Exception as value_error:
+        print(f"⚠️ Blox Fruits value lookup failed: {value_error}")
+
     # Record in database
     try:
         await add_revenue_entry(
@@ -154,9 +170,12 @@ async def validate_and_record_revenue(message: discord.Message):
             done_by_id=done_by_id,
             done_by_name=done_by_display,
             message_id=message.id,
-            channel_id=message.channel.id
+            channel_id=message.channel.id,
+            payment_value=payment_value,
+            payment_value_name=payment_value_name,
+            payment_value_checked_at=payment_value_checked_at
         )
-        print(f"✅ Revenue entry recorded: {user_display} -> {paid_to_display} ({service})")
+        print(f"✅ Revenue entry recorded: {user_display} -> {paid_to_display} ({service}) | payment={payment_method} | value={payment_value}")
         
         # React to confirm
         await message.add_reaction("✅")
@@ -221,6 +240,27 @@ async def clear_revenue_channel_cmd(ctx: commands.Context):
 #         REVENUE REPORT COMMANDS
 # ==========================================
 
+@bot.hybrid_command(name="refreshbloxvalues", aliases=["refreshvalues", "bloxvaluesrefresh"], help="Refresh the live Blox Fruits value cache")
+@staff_check(need="mod")
+async def refresh_blox_values_cmd(ctx: commands.Context):
+    """Force-refresh Blox Fruits Values from the configured source website."""
+    success, count, refreshed_at = await refresh_blox_values(force=True)
+    if success:
+        when = refreshed_at.strftime("%Y-%m-%d %H:%M UTC") if refreshed_at else "unknown"
+        description = f"✅ Refreshed **{count}** Blox Fruits values.\n\nLast refresh: `{when}`"
+    else:
+        description = (
+            "⚠️ Could not refresh Blox Fruits Values right now. "
+            f"The bot kept its last known cache ({count} items)."
+        )
+    await ctx.send(embed=style_embed(
+        title=f"{BRAND_EMOJI} Blox Fruits Values",
+        description=description,
+        color=BRAND_COLOR,
+        kind="info"
+    ))
+
+
 @bot.hybrid_command(name="weekrevenue", aliases=["week", "weeklyrevenue"], help="Show revenue for the past 7 days")
 @staff_check(need="mod")
 async def week_revenue(ctx: commands.Context):
@@ -269,6 +309,18 @@ async def generate_revenue_report(ctx: commands.Context, days: int = None, perio
     single_staff_data = defaultdict(lambda: {'services': defaultdict(int), 'payments': defaultdict(int)})
     multi_staff_data = defaultdict(lambda: {'services': defaultdict(int), 'payments': defaultdict(int)})
     total_entries = len(entries)
+    calculated_total = sum(float(e.get("payment_value") or 0) for e in entries)
+    uncalculated = defaultdict(int)
+    calculated_payments = defaultdict(lambda: {"count": 0, "value": 0.0})
+
+    for entry in entries:
+        payment = entry.get("payment", "Unknown")
+        value = entry.get("payment_value")
+        if isinstance(value, (int, float)) and value > 0:
+            calculated_payments[payment]["count"] += 1
+            calculated_payments[payment]["value"] += float(value)
+        else:
+            uncalculated[payment] += 1
     
     for entry in entries:
         # Extract fields from dictionary
@@ -293,7 +345,22 @@ async def generate_revenue_report(ctx: commands.Context, days: int = None, perio
             single_staff_data[staff_key]['payments'][payment_method] += 1
     
     # Build the report
-    description = f"📊 **Total Transactions:** {total_entries}\n\n"
+    description = f"📊 **Total Transactions:** {total_entries}\n"
+    description += f"💰 **Calculated In-Game Revenue:** `{format_value(calculated_total)}`\n\n"
+    description += "**💰 Calculated Payments:**\n"
+    for payment, data in sorted(calculated_payments.items(), key=lambda item: item[1]["value"], reverse=True):
+        description += f"   • {payment}: `{data['count']}x` → `{format_value(data['value'])}`\n"
+    if not calculated_payments:
+        description += "   • None\n"
+
+    description += "\n**⚠️ Uncalculated / Non-Ingame Payment:**\n"
+    if uncalculated:
+        for payment, count in sorted(uncalculated.items(), key=lambda item: item[1], reverse=True):
+            description += f"   • {payment}: `{count}x`\n"
+    else:
+        description += "   • None\n"
+
+    description += "\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
     # Single staff section
     sorted_staff = sorted(single_staff_data.items(), key=lambda x: sum(x[1]['services'].values()), reverse=True)
@@ -415,7 +482,12 @@ async def revenue_details(ctx: commands.Context, days: int = 7):
         
         description += f"**{date_str}** • {service}\n"
         description += f"  {EMOJI_BULLET} User: {user_name} → Staff: {staff_display}\n"
-        description += f"  {EMOJI_BULLET} Payment: {payment_method}\n\n"
+        payment_value = entry.get("payment_value")
+        if isinstance(payment_value, (int, float)) and payment_value > 0:
+            description += f"  {EMOJI_BULLET} Payment: {payment_method} → `{format_value(float(payment_value))}`\n"
+        else:
+            description += f"  {EMOJI_BULLET} Payment: {payment_method} → ⚠️ Uncalculated / Non-Ingame Payment\n"
+        description += "\n"
     
     embed = style_embed(
         title=f"{BRAND_EMOJI} Revenue Details",
