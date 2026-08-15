@@ -247,6 +247,27 @@ async def delete_revenue_entry(entry_id: str) -> bool:
         print(f"⚠️ Failed to delete revenue entry: {e}")
         return False
 
+async def clear_revenue_data(guild_id: int) -> int:
+    """Delete all revenue entries for one guild only.
+
+    Returns the number of deleted entries. Revenue channel configuration is
+    intentionally preserved so clearing history does not disable tracking.
+    """
+    if db is None:
+        return 0
+
+    try:
+        result = await db["revenue_entries"].delete_many({"guild_id": guild_id})
+        print(
+            f"🧹 Cleared revenue data: guild={guild_id}, "
+            f"deleted={result.deleted_count}"
+        )
+        return result.deleted_count
+    except Exception as e:
+        print(f"⚠️ Failed to clear revenue data for guild {guild_id}: {e}")
+        return 0
+
+
 async def get_total_entries_count(guild_id: int) -> int:
     """Get total number of revenue entries for a guild."""
     if db is None:
