@@ -1,6 +1,3 @@
-
-
-
 """
 revenue.py — Revenue Tracking System for Service Servers
 Auto-detects revenue reports, validates format, and generates reports.
@@ -21,7 +18,7 @@ from bot.blox_values import format_value, lookup_payment, refresh_blox_values, c
 from bot.revenue_database import (
     add_revenue_entry, get_revenue_entries, get_revenue_summary,
     get_revenue_channel, set_revenue_channel, clear_revenue_channel,
-    get_multi_staff_entries, get_total_entries_count
+    get_multi_staff_entries, get_total_entries_count, clear_revenue_data
 )
 
 # Expected format (FLEXIBLE):
@@ -232,6 +229,27 @@ async def clear_revenue_channel_cmd(ctx: commands.Context):
         title="Revenue Tracking Disabled",
         description="Revenue tracking has been disabled for this server.",
         kind="info"
+    )
+    await ctx.send(embed=embed)
+
+
+@bot.hybrid_command(name="clearrevenue", help="Delete all revenue history for this server (admin only)")
+@staff_check(need="admin")
+async def clear_revenue_cmd(ctx: commands.Context):
+    """Delete all revenue entries for the current server only."""
+    if not ctx.guild:
+        return
+
+    deleted_count = await clear_revenue_data(ctx.guild.id)
+
+    embed = style_embed(
+        title="Revenue Data Cleared",
+        description=(
+            f"🧹 Successfully deleted **{deleted_count}** revenue entries "
+            "from this server.\n\n"
+            "Revenue tracking is still enabled."
+        ),
+        kind="success"
     )
     await ctx.send(embed=embed)
 
