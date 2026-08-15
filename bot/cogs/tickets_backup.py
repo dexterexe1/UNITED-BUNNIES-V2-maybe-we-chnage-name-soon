@@ -1,4 +1,4 @@
-from bot.config import quick_embed
+from bot.config import style_embed
 from bot.ui.premium_cards import quick_card_view, style_card_view
 
 """
