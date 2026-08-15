@@ -124,6 +124,122 @@ async def owner_only_mode_cmd(ctx: commands.Context, enabled: Optional[bool] = N
 
 
 # ==========================================
+#         DEVELOPER HELP
+# ==========================================
+
+def _is_developer_command(command: commands.Command) -> bool:
+    """Detect commands that explicitly use the bot-owner authorization check."""
+    callback = getattr(command, "callback", None)
+    code = getattr(callback, "__code__", None)
+    if code is None:
+        return False
+
+    # Owner-restricted commands in this project call is_bot_owner().
+    # This keeps the help menu automatically synchronized with registered
+    # commands instead of maintaining a second hard-coded command list.
+    return "is_bot_owner" in code.co_names
+
+
+def _developer_command_category(command: commands.Command) -> str:
+    """Choose a useful category for the developer command menu."""
+    name = (command.name or "").lower()
+
+    if name in {"owneronlymode", "lockbot", "botstatus", "botinfo"}:
+        return "👑 Developer / Owner"
+    if "disable" in name or "enable" in name:
+        return "🛠️ Command Management"
+    if "revenue" in name:
+        return "💰 Revenue"
+    if "prefix" in name:
+        return "⚙️ Bot Configuration"
+    return "🔧 Other Developer Tools"
+
+
+@bot.command(
+    name="devhelp",
+    aliases=["developerhelp", "devcommands"],
+    help="Show developer-only bot commands (owners only)"
+)
+async def developer_help_cmd(ctx: commands.Context):
+    """Show the commands available to bot owners."""
+    if not is_bot_owner(ctx.author.id):
+        await ctx.send(
+            embed=style_embed(
+                title="❌ Unauthorized",
+                description="Only bot owners can use the developer help menu.",
+                kind="error"
+            )
+        )
+        return
+
+    # Read the currently registered commands at runtime and detect commands
+    # whose callbacks explicitly use the existing bot-owner authorization.
+    developer_commands = [
+        command for command in bot.commands
+        if not command.hidden and _is_developer_command(command)
+    ]
+
+    categories = {}
+    for command in developer_commands:
+        category = _developer_command_category(command)
+        categories.setdefault(category, []).append(command)
+
+    embed = style_embed(
+        title="👑 Developer Command Center",
+        description="Developer-only commands currently registered in the bot.",
+        color=BRAND_COLOR,
+        kind="info"
+    )
+
+    category_order = [
+        "👑 Developer / Owner",
+        "🛠️ Command Management",
+        "💰 Revenue",
+        "⚙️ Bot Configuration",
+        "🔧 Other Developer Tools",
+    ]
+
+    for category in category_order:
+        commands_in_category = categories.get(category, [])
+        if not commands_in_category:
+            continue
+
+        lines = []
+        for command in sorted(commands_in_category, key=lambda c: c.name.lower()):
+            description = command.help or command.description or "No description available."
+            description = " ".join(description.split())
+            if len(description) > 100:
+                description = description[:97] + "..."
+
+            signature = getattr(command, "signature", "") or ""
+            usage = f"?{command.name}"
+            if signature:
+                usage += f" {signature}"
+
+            lines.append(f"`{usage}` — {description}")
+
+        # Discord embed fields have a 1024-character value limit.
+        chunks = []
+        current = ""
+        for line in lines:
+            if len(current) + len(line) + 1 > 1000:
+                if current:
+                    chunks.append(current)
+                current = line
+            else:
+                current = f"{current}\n{line}".strip()
+        if current:
+            chunks.append(current)
+
+        for index, chunk in enumerate(chunks):
+            field_name = category if index == 0 else f"{category} (continued)"
+            embed.add_field(name=field_name, value=chunk, inline=False)
+
+    embed.set_footer(text="Developer Tools • United Bunnies")
+    await ctx.send(embed=embed)
+
+
+# ==========================================
 #         COMMAND DISABLE SYSTEM
 # ==========================================
 
