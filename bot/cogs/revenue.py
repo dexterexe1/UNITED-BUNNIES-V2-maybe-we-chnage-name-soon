@@ -71,21 +71,25 @@ async def validate_and_record_revenue(message: discord.Message):
     """
     # Check if this is the revenue channel
     revenue_channel_id = await get_revenue_channel(message.guild.id)
-    print(f"🔍 Revenue validation check - Channel ID from DB: {revenue_channel_id}, Message channel: {message.channel.id}")
+    print(f"🔍 Revenue validation check - DB Channel ID: {revenue_channel_id}, Message channel: {message.channel.id}")
     if not revenue_channel_id or message.channel.id != revenue_channel_id:
+        print(f"❌ Not revenue channel - skipping")
         return False
     
     print(f"✅ Message is in revenue channel, validating format...")
     # Skip bot messages and commands
     if message.author.bot or message.content.startswith("?"):
+        print(f"⏭️ Skipping bot message or command")
         return False
     
     # Try to parse the revenue report
+    print(f"📝 Message content: {message.content}")
     match = REVENUE_PATTERN.search(message.content)
     print(f"📝 Regex match result: {match}")
     
     if not match:
         # Invalid format - notify and delete
+        print(f"❌ Invalid format - sending error")
         try:
             warning = await message.reply(
                 f"❌ {message.author.mention} **Invalid revenue report format!**\n{CORRECT_FORMAT}",
