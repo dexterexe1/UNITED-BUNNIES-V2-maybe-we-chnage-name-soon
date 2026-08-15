@@ -179,7 +179,7 @@ async def validate_and_record_revenue(message: discord.Message):
 #           REVENUE SETUP COMMANDS
 # ==========================================
 
-@bot.command(name="setrevenuechannel", help="Set the revenue tracking channel (staff/mod only)")
+@bot.hybrid_command(name="setrevenuechannel", help="Set the revenue tracking channel (staff/mod only)")
 @staff_check(need="mod")
 async def set_revenue_channel_cmd(ctx: commands.Context, channel: discord.TextChannel):
     """Set which channel should be monitored for revenue reports."""
@@ -203,7 +203,7 @@ async def set_revenue_channel_cmd(ctx: commands.Context, channel: discord.TextCh
     await ctx.send(embed=embed)
 
 
-@bot.command(name="clearrevenuechannel", help="Disable revenue tracking (staff only)")
+@bot.hybrid_command(name="clearrevenuechannel", help="Disable revenue tracking (staff only)")
 @staff_check(need="admin")
 async def clear_revenue_channel_cmd(ctx: commands.Context):
     """Stop tracking revenue reports."""
@@ -221,28 +221,28 @@ async def clear_revenue_channel_cmd(ctx: commands.Context):
 #         REVENUE REPORT COMMANDS
 # ==========================================
 
-@bot.command(name="weekrevenue", aliases=["week", "weeklyrevenue"], help="Show revenue for the past 7 days")
+@bot.hybrid_command(name="weekrevenue", aliases=["week", "weeklyrevenue"], help="Show revenue for the past 7 days")
 @staff_check(need="mod")
 async def week_revenue(ctx: commands.Context):
     """Display weekly revenue summary grouped by staff member."""
     await generate_revenue_report(ctx, days=7, period_name="Weekly")
 
 
-@bot.command(name="monthrevenue", aliases=["month", "monthlyrevenue"], help="Show revenue for the past 30 days")
+@bot.hybrid_command(name="monthrevenue", aliases=["month", "monthlyrevenue"], help="Show revenue for the past 30 days")
 @staff_check(need="mod")
 async def month_revenue(ctx: commands.Context):
     """Display monthly revenue summary grouped by staff member."""
     await generate_revenue_report(ctx, days=30, period_name="Monthly")
 
 
-@bot.command(name="todayrevenue", aliases=["today", "dailyrevenue"], help="Show revenue for today")
+@bot.hybrid_command(name="todayrevenue", aliases=["today", "dailyrevenue"], help="Show revenue for today")
 @staff_check(need="mod")
 async def today_revenue(ctx: commands.Context):
     """Display today's revenue summary."""
     await generate_revenue_report(ctx, days=1, period_name="Today's")
 
 
-@bot.command(name="allrevenue", aliases=["totalrevenue"], help="Show all-time revenue")
+@bot.hybrid_command(name="allrevenue", aliases=["totalrevenue"], help="Show all-time revenue")
 @staff_check(need="admin")
 async def all_revenue(ctx: commands.Context):
     """Display all-time revenue summary."""
@@ -369,7 +369,7 @@ async def generate_revenue_report(ctx: commands.Context, days: int = None, perio
     await ctx.send(embed=embed)
 
 
-@bot.command(name="revenuedetails", aliases=["revdetails"], help="Show detailed revenue entries (last 10)")
+@bot.hybrid_command(name="revenuedetails", aliases=["revdetails"], help="Show detailed revenue entries (last 10)")
 @staff_check(need="mod")
 async def revenue_details(ctx: commands.Context, days: int = 7):
     """Show detailed list of recent revenue entries."""
@@ -429,9 +429,9 @@ async def revenue_details(ctx: commands.Context, days: int = 7):
     await ctx.send(embed=embed)
 
 
-@bot.command(name="revenuevia", aliases=["staffrevenue", "revvia"], help="Show revenue for a specific staff member")
+@bot.hybrid_command(name="revenuevia", aliases=["staffrevenue", "revvia"], help="Show revenue for a specific staff member")
 @staff_check(need="mod")
-async def revenue_via_staff(ctx: commands.Context, *, staff_name: str, days: int = 30):
+async def revenue_via_staff(ctx: commands.Context, staff_name: str, days: int = 30):
     """Show all services provided by a specific staff member."""
     
     # Get all entries
@@ -540,7 +540,7 @@ async def revenue_via_staff(ctx: commands.Context, *, staff_name: str, days: int
     await ctx.send(embed=embed)
 
 
-@bot.command(name="revenuehelp", aliases=["revhelp"], help="Show revenue system help")
+@bot.hybrid_command(name="revenuehelp", aliases=["revhelp"], help="Show revenue system help")
 async def revenue_help(ctx: commands.Context):
     """Display help for the revenue tracking system."""
     
