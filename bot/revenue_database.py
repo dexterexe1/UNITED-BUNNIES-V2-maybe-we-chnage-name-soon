@@ -117,7 +117,10 @@ async def add_revenue_entry(
     done_by_id: Optional[int] = None,
     done_by_name: Optional[str] = None,
     message_id: Optional[int] = None,
-    channel_id: Optional[int] = None
+    channel_id: Optional[int] = None,
+    payment_value: Optional[float] = None,
+    payment_value_name: Optional[str] = None,
+    payment_value_checked_at: Optional[datetime.datetime] = None
 ) -> None:
     """Add a new revenue entry."""
     if db is None:
@@ -134,6 +137,9 @@ async def add_revenue_entry(
             "done_by_name": done_by_name,
             "message_id": message_id,
             "channel_id": channel_id,
+            "payment_value": payment_value,
+            "payment_value_name": payment_value_name,
+            "payment_value_checked_at": payment_value_checked_at,
             "timestamp": datetime.datetime.now(UTC)
         })
     except Exception as e:
