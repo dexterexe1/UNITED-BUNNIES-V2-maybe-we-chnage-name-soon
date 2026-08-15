@@ -183,7 +183,16 @@ async def validate_and_record_revenue(message: discord.Message):
 @staff_check(need="mod")
 async def set_revenue_channel_cmd(ctx: commands.Context, channel: discord.TextChannel):
     """Set which channel should be monitored for revenue reports."""
-    await set_revenue_channel(ctx.guild.id, channel.id, ctx.author.id)
+    success = await set_revenue_channel(ctx.guild.id, channel.id, ctx.author.id)
+    
+    if not success:
+        embed = style_embed(
+            title="Error",
+            description="❌ Failed to set revenue channel. Database connection may be unavailable.",
+            kind="error"
+        )
+        await ctx.send(embed=embed)
+        return
     
     embed = style_embed(
         title="Revenue Tracking Enabled",

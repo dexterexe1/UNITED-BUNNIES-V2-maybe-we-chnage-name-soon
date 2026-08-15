@@ -9,8 +9,14 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 UTC = datetime.timezone.utc
 
-# MongoDB connection
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+# MongoDB connection - use same env var as mongo_bridge.py
+MONGO_URI = os.getenv("MONGO_URI") or os.getenv("MONGODB_URL")
+
+if not MONGO_URI:
+    raise RuntimeError("❌ MONGO_URI or MONGODB_URL environment variable is required for revenue tracking")
+
+MONGO_DB = os.getenv("MONGO_DB", "united_bunnies")
+
 client = None
 db: AsyncIOMotorDatabase = None
 
@@ -18,8 +24,13 @@ async def init_revenue_db():
     """Initialize MongoDB connection for revenue tracking."""
     global client, db
     try:
-        client = AsyncIOMotorClient(MONGODB_URL)
-        db = client["united_bunnies"]
+        print(f"🔗 Connecting to MongoDB for revenue tracking...")
+        client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=8000)
+        db = client[MONGO_DB]
+        
+        # Test connection
+        await db.command("ping")
+        print(f"✅ Revenue MongoDB connected to database: {MONGO_DB}")
         
         # Create collections if they don't exist
         collections = await db.list_collection_names()
@@ -28,26 +39,30 @@ async def init_revenue_db():
             await db.create_collection("revenue_entries")
             await db["revenue_entries"].create_index("guild_id")
             await db["revenue_entries"].create_index("timestamp")
+            print("✅ Created revenue_entries collection")
         
         if "revenue_channels" not in collections:
             await db.create_collection("revenue_channels")
             await db["revenue_channels"].create_index("guild_id", unique=True)
+            print("✅ Created revenue_channels collection")
         
-        print("✅ Revenue MongoDB initialized successfully!")
+        print("✅ Revenue database initialized successfully!")
     except Exception as e:
-        print(f"⚠️ Revenue MongoDB initialization failed: {e}")
+        print(f"❌ Revenue MongoDB initialization failed: {e}")
+        raise
 
 # ==========================================
 #         REVENUE CHANNEL MANAGEMENT
 # ==========================================
 
-async def set_revenue_channel(guild_id: int, channel_id: int, setup_by: int) -> None:
-    """Set the revenue tracking channel for a guild."""
+async def set_revenue_channel(guild_id: int, channel_id: int, setup_by: int) -> bool:
+    """Set the revenue tracking channel for a guild. Returns True on success."""
     if db is None:
-        return
+        print("❌ Revenue DB not initialized")
+        return False
     
     try:
-        await db["revenue_channels"].update_one(
+        result = await db["revenue_channels"].update_one(
             {"guild_id": guild_id},
             {
                 "$set": {
@@ -58,8 +73,11 @@ async def set_revenue_channel(guild_id: int, channel_id: int, setup_by: int) -> 
             },
             upsert=True
         )
+        print(f"✅ Revenue channel set: guild={guild_id}, channel={channel_id}")
+        return True
     except Exception as e:
-        print(f"⚠️ Failed to set revenue channel: {e}")
+        print(f"❌ Failed to set revenue channel: {e}")
+        return False
 
 async def get_revenue_channel(guild_id: int) -> Optional[int]:
     """Get the revenue channel ID for a guild."""
