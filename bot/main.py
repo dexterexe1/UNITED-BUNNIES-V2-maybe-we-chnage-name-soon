@@ -39,6 +39,7 @@ import bot.cogs.revenue  # noqa: F401  # Revenue tracking system
 import bot.cogs.bot_control  # noqa: F401  # Bot control & owner system
 import bot.cogs.role_info  # noqa: F401  # Role information commands
 import bot.cogs.role_management  # noqa: F401  # Dyno-style role creation
+import bot.cogs.command_lists  # noqa: F401  # ?commands and ?commandsinfo
 
 # Events (on_ready, on_message, member join/leave, message log, etc.)
 import bot.events  # noqa: F401
