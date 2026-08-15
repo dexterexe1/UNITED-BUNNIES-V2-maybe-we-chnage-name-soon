@@ -23,7 +23,7 @@ bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 # --- BOT OWNER IDS (YOUR DEV TEAM) ---
 # Add your Discord user IDs here - these users get FULL bot control
 BOT_OWNER_IDS = [
-    123456789012345678,  # Replace with YOUR Discord ID
+    1375115918736228415,  # Replace with YOUR Discord ID
     # 987654321098765432,  # Another dev's Discord ID (add more as needed)
 ]
 
