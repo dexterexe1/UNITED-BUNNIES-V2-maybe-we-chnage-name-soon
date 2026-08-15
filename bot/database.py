@@ -1050,12 +1050,20 @@ def remove_bot_owner(user_id: int) -> bool:
     return changed
 
 def is_bot_owner(user_id: int) -> bool:
-    """Check if user is a bot owner."""
+    # Check configured bot owners first
+    if user_id in BOT_OWNER_IDS:
+        return True
+
+    # Then check database owners
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT 1 FROM bot_owners WHERE user_id = ?", (user_id,))
+    cursor.execute(
+        "SELECT 1 FROM bot_owners WHERE user_id = ?",
+        (user_id,)
+    )
     row = cursor.fetchone()
     conn.close()
+
     return row is not None
 
 def get_bot_owners():
