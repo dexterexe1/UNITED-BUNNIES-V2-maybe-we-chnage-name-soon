@@ -71,15 +71,18 @@ async def validate_and_record_revenue(message: discord.Message):
     """
     # Check if this is the revenue channel
     revenue_channel_id = await get_revenue_channel(message.guild.id)
+    print(f"🔍 Revenue validation check - Channel ID from DB: {revenue_channel_id}, Message channel: {message.channel.id}")
     if not revenue_channel_id or message.channel.id != revenue_channel_id:
         return False
     
+    print(f"✅ Message is in revenue channel, validating format...")
     # Skip bot messages and commands
     if message.author.bot or message.content.startswith("?"):
         return False
     
     # Try to parse the revenue report
     match = REVENUE_PATTERN.search(message.content)
+    print(f"📝 Regex match result: {match}")
     
     if not match:
         # Invalid format - notify and delete
@@ -90,8 +93,8 @@ async def validate_and_record_revenue(message: discord.Message):
             )
             await message.delete()
             await warning.delete(delay=15)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ Error sending validation message: {e}")
         return True
     
     # Extract data (supports both @mentions and plain names)
@@ -140,23 +143,23 @@ async def validate_and_record_revenue(message: discord.Message):
     try:
         await add_revenue_entry(
             guild_id=message.guild.id,
-            user_id=user_id,
             user_name=user_display,
             service=service,
-            payment_method=payment_method,
-            paid_to_id=paid_to_id,
-            paid_to_name=paid_to_display,
+            payment=payment_method,
+            paid_to=paid_to_display,
             done_by_id=done_by_id,
             done_by_name=done_by_display,
-            recorded_by_id=message.author.id
+            message_id=message.id,
+            channel_id=message.channel.id
         )
+        print(f"✅ Revenue entry recorded: {user_display} -> {paid_to_display} ({service})")
         
         # React to confirm
         await message.add_reaction("✅")
         await message.add_reaction("💰")
         
     except Exception as e:
-        print(f"Error recording revenue: {e}")
+        print(f"❌ Error recording revenue: {e}")
         try:
             await message.reply(
                 f"❌ Failed to record revenue entry. Please contact an administrator.",
