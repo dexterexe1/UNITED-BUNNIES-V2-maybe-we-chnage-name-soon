@@ -270,13 +270,16 @@ async def generate_revenue_report(ctx: commands.Context, days: int = None, perio
     multi_staff_data = defaultdict(lambda: {'services': defaultdict(int), 'payments': defaultdict(int)})
     total_entries = len(entries)
     
-    for user_id, user_name, service, payment_method, paid_to_id, paid_to_name, done_by_id, done_by_name, recorded_by_id, created_at in entries:
-        # Get staff name (prefer Discord member, fallback to stored name)
-        if paid_to_id and paid_to_id != 0:
-            staff_member = ctx.guild.get_member(paid_to_id)
-            staff_key = staff_member.display_name if staff_member else paid_to_name
-        else:
-            staff_key = paid_to_name
+    for entry in entries:
+        # Extract fields from dictionary
+        user_name = entry.get("user_name")
+        service = entry.get("service", "Unknown")
+        payment_method = entry.get("payment", "Unknown")
+        paid_to_name = entry.get("paid_to", "Unknown")
+        done_by_name = entry.get("done_by_name")
+        
+        # Staff key is just the paid_to name
+        staff_key = paid_to_name
         
         # Check if multi-staff (done_by exists)
         if done_by_name and done_by_name.strip():
