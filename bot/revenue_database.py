@@ -11,10 +11,6 @@ UTC = datetime.timezone.utc
 
 # MongoDB connection - use same env var as mongo_bridge.py
 MONGO_URI = os.getenv("MONGO_URI") or os.getenv("MONGODB_URL")
-
-if not MONGO_URI:
-    raise RuntimeError("❌ MONGO_URI or MONGODB_URL environment variable is required for revenue tracking")
-
 MONGO_DB = os.getenv("MONGO_DB", "united_bunnies")
 
 client = None
@@ -23,6 +19,11 @@ db: AsyncIOMotorDatabase = None
 async def init_revenue_db():
     """Initialize MongoDB connection for revenue tracking."""
     global client, db
+    
+    if not MONGO_URI:
+        print("⚠️ MONGO_URI not set - revenue tracking disabled")
+        return
+    
     try:
         print(f"🔗 Connecting to MongoDB for revenue tracking...")
         client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=8000)
