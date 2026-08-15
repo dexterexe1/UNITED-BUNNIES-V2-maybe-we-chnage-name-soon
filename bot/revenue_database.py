@@ -43,7 +43,7 @@ async def init_revenue_db():
 
 async def set_revenue_channel(guild_id: int, channel_id: int, setup_by: int) -> None:
     """Set the revenue tracking channel for a guild."""
-    if not db:
+    if db is None:
         return
     
     try:
@@ -63,7 +63,7 @@ async def set_revenue_channel(guild_id: int, channel_id: int, setup_by: int) -> 
 
 async def get_revenue_channel(guild_id: int) -> Optional[int]:
     """Get the revenue channel ID for a guild."""
-    if not db:
+    if db is None:
         return None
     
     try:
@@ -75,7 +75,7 @@ async def get_revenue_channel(guild_id: int) -> Optional[int]:
 
 async def clear_revenue_channel(guild_id: int) -> bool:
     """Remove revenue tracking for a guild."""
-    if not db:
+    if db is None:
         return False
     
     try:
@@ -101,7 +101,7 @@ async def add_revenue_entry(
     channel_id: Optional[int] = None
 ) -> None:
     """Add a new revenue entry."""
-    if not db:
+    if db is None:
         return
     
     try:
@@ -126,7 +126,7 @@ async def get_revenue_entries(
     staff_name: Optional[str] = None
 ) -> List[Dict]:
     """Get revenue entries with optional filtering."""
-    if not db:
+    if db is None:
         return []
     
     try:
@@ -151,7 +151,7 @@ async def get_revenue_entries(
 
 async def get_revenue_summary(guild_id: int, days: Optional[int] = None) -> dict:
     """Get revenue summary grouped by staff and payment type."""
-    if not db:
+    if db is None:
         return {}
     
     try:
@@ -192,7 +192,7 @@ async def get_revenue_summary(guild_id: int, days: Optional[int] = None) -> dict
 
 async def get_multi_staff_entries(guild_id: int, days: Optional[int] = None) -> List[Dict]:
     """Get entries where multiple staff were involved (done_by is set)."""
-    if not db:
+    if db is None:
         return []
     
     try:
@@ -211,7 +211,7 @@ async def get_multi_staff_entries(guild_id: int, days: Optional[int] = None) -> 
 
 async def delete_revenue_entry(entry_id: str) -> bool:
     """Delete a revenue entry by ID."""
-    if not db:
+    if db is None:
         return False
     
     try:
@@ -224,7 +224,7 @@ async def delete_revenue_entry(entry_id: str) -> bool:
 
 async def get_total_entries_count(guild_id: int) -> int:
     """Get total number of revenue entries for a guild."""
-    if not db:
+    if db is None:
         return 0
     
     try:
