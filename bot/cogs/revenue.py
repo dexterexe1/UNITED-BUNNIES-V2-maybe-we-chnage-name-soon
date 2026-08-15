@@ -387,24 +387,31 @@ async def revenue_details(ctx: commands.Context, days: int = 7):
     
     description = f"**Last {len(entries)} Entries (Past {days} Days)**\n\n"
     
-    for user_id, user_name, service, payment_method, paid_to_id, paid_to_name, done_by_id, done_by_name, recorded_by_id, created_at in entries:
-        # Use stored names if available
-        user_display = user_name if user_name else (ctx.guild.get_member(user_id).display_name if ctx.guild.get_member(user_id) else f"User {user_id}")
-        staff_display = paid_to_name if paid_to_name else (ctx.guild.get_member(paid_to_id).display_name if ctx.guild.get_member(paid_to_id) else f"User {paid_to_id}")
+    for entry in entries:
+        # Extract fields from dictionary
+        user_name = entry.get("user_name", "Unknown")
+        service = entry.get("service", "Unknown")
+        payment_method = entry.get("payment", "Unknown")
+        paid_to_name = entry.get("paid_to", "Unknown")
+        done_by_name = entry.get("done_by_name")
+        timestamp = entry.get("timestamp")
         
         # Add "done by" if exists
+        staff_display = paid_to_name
         if done_by_name and done_by_name.strip():
-            staff_display = f"{staff_display}, {done_by_name}"
+            staff_display = f"{paid_to_name}, {done_by_name}"
         
         # Parse date
         try:
-            date_obj = datetime.datetime.fromisoformat(created_at)
-            date_str = date_obj.strftime("%m/%d %H:%M")
+            if isinstance(timestamp, datetime.datetime):
+                date_str = timestamp.strftime("%m/%d %H:%M")
+            else:
+                date_str = "Unknown"
         except Exception:
             date_str = "Unknown"
         
         description += f"**{date_str}** • {service}\n"
-        description += f"  {EMOJI_BULLET} User: {user_display} → Staff: {staff_display}\n"
+        description += f"  {EMOJI_BULLET} User: {user_name} → Staff: {staff_display}\n"
         description += f"  {EMOJI_BULLET} Payment: {payment_method}\n\n"
     
     embed = style_embed(
