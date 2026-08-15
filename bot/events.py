@@ -58,20 +58,27 @@ async def on_ready():
             bot.tree.add_command(mod_group)
         except discord.app_commands.CommandAlreadyRegistered:
             pass
+    
+    print("=" * 60)
     print(f"✨ Success! {bot.user.name} is online.")
     print(f"📋 Prefix/hybrid commands loaded: {len(bot.commands)}")
+    print("=" * 60)
+    
     # Sample public commands so deploy logs prove help/ping exist
     for name in ("help", "ping", "play", "warn", "vouch"):
         c = bot.get_command(name)
         print(f"   - {name}: {'OK' if c else 'MISSING'}")
     
     # Initialize revenue database
+    print("🔧 Initializing revenue database...")
     try:
         from bot.revenue_database import init_revenue_db
         await init_revenue_db()
         print("✅ Revenue database initialized")
     except Exception as e:
         print(f"⚠️ Revenue database init error: {e}")
+        import traceback
+        traceback.print_exc()
     
     await publish_bot_status()
     if _ready_initialized:
