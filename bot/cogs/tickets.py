@@ -13,7 +13,7 @@ import datetime
 import asyncio
 import re
 
-from bot.config import bot, quick_embed, REQUIRED_ROLE_ID, TICKET_CATEGORY_NAME, UTC
+from bot.config import bot, quick_embed, TICKET_CATEGORY_NAME, UTC, staff_check
 from bot.database import (
     create_ticket_record,
     close_ticket_record,
@@ -22,6 +22,7 @@ from bot.database import (
     get_ticket_record,
     get_open_ticket_for_user,
     list_open_tickets,
+    get_trusted_role_id,
 )
 
 TICKET_TYPES = {
@@ -58,7 +59,9 @@ async def open_new_ticket(
     )
 
     category = await get_or_create_ticket_category(guild)
-    staff_role = guild.get_role(REQUIRED_ROLE_ID)
+    
+    # Tickets are visible to staff with Moderate Members permission
+    # No specific role needed - uses Discord permissions
 
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(
@@ -76,12 +79,8 @@ async def open_new_ticket(
         ),
     }
 
-    if staff_role:
-        overwrites[staff_role] = discord.PermissionOverwrite(
-            view_channel=True,
-            send_messages=True,
-            read_message_history=True,
-        )
+    # Note: Staff with Moderate Members permission can access tickets
+    # No specific role overwrites needed - permission-based access via commands
 
     safe_name = (
         re.sub(
@@ -209,9 +208,7 @@ class TicketManageView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
-        staff_role = interaction.guild.get_role(
-            REQUIRED_ROLE_ID
-        )
+        # Staff access is managed by Discord permissions, not roles
 
         is_staff = (
             staff_role
@@ -301,9 +298,7 @@ class TicketManageView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
-        staff_role = interaction.guild.get_role(
-            REQUIRED_ROLE_ID
-        )
+        # Staff access is managed by Discord permissions, not roles
 
         is_staff = (
             staff_role
@@ -336,9 +331,7 @@ class TicketManageView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
-        staff_role = interaction.guild.get_role(
-            REQUIRED_ROLE_ID
-        )
+        # Staff access is managed by Discord permissions, not roles
 
         is_staff = (
             staff_role
@@ -491,9 +484,7 @@ async def close_ticket_prefix(ctx):
         )
         return
 
-    staff_role = ctx.guild.get_role(
-        REQUIRED_ROLE_ID
-    )
+    # Staff access is managed by Discord permissions, not roles
 
     is_staff = (
         staff_role

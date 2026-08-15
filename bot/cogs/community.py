@@ -13,10 +13,10 @@ import re
 import requests
 
 from bot.config import (
-    bot, quick_embed, style_embed, REQUIRED_ROLE_ID, UTC, BRAND_COLOR,
+    bot, quick_embed, style_embed, UTC, BRAND_COLOR,
     afk_users,
     SUPPORT_SERVER_URL, DASHBOARD_URL, INVITE_URL, GIPHY_API_KEY, fetch_giphy_gif_url,
-    has_required_slash_role, mod_group, LEVELING_SYSTEM_ENABLED, EMOJI_BULLET,
+    has_required_slash_role, mod_group, LEVELING_SYSTEM_ENABLED, EMOJI_BULLET, staff_check,
 )
 from bot.database import (
     get_level_data, add_xp, level_leaderboard, xp_for_level,
@@ -115,7 +115,7 @@ async def dashboard_slash(interaction: discord.Interaction):
 # ==========================================
 
 @bot.hybrid_command(name="p", description="[Staff] Post a custom formatted announcement embed")
-@commands.has_role(REQUIRED_ROLE_ID)
+@staff_check("admin")
 @app_commands.describe(text="Announcement text. Use [IMAGE] <url>, [SECTION] or [FIELD] to structure it")
 async def p_prefix(ctx, *, text: str):
     try:

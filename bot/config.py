@@ -20,8 +20,12 @@ intents.members = True
 # Setting the message prefix strictly to '?' for commands
 bot = commands.Bot(command_prefix="?", intents=intents, help_command=None)
 
-# --- TARGET ENFORCEMENT ROLE ID ---
-REQUIRED_ROLE_ID = 1517514393141776506
+# --- BOT OWNER IDS (YOUR DEV TEAM) ---
+# Add your Discord user IDs here - these users get FULL bot control
+BOT_OWNER_IDS = [
+    123456789012345678,  # Replace with YOUR Discord ID
+    # 987654321098765432,  # Another dev's Discord ID (add more as needed)
+]
 
 BOT_STATUS_URL = os.getenv("BOT_STATUS_URL")
 BOT_API_SECRET = os.getenv("BOT_API_SECRET")  # must match the dashboard's BOT_API_SECRET
@@ -87,49 +91,50 @@ def style_embed(
 
 
 def is_staff(member: discord.Member, *, need: str = "mod") -> bool:
-    """Option C: Discord permissions OR legacy REQUIRED_ROLE_ID OR trusted role.
+    """Discord permission-based staff check (like Dyno).
 
-    need:
-      mod / warn / mute / clear → Moderate Members | Manage Messages | Kick
+    Permission Levels:
+      mod → Moderate Members OR Manage Messages
       kick → Kick Members
-      ban → Ban Members
-      admin → Manage Guild | Administrator
+      ban → Ban Members  
+      admin → Manage Server OR Administrator
     """
     if member is None or not isinstance(member, discord.Member):
         return False
+    
     perms = member.guild_permissions
+    
+    # Administrator bypasses everything
     if perms.administrator:
         return True
-    # Legacy hardcoded staff role still works
-    if any(r.id == REQUIRED_ROLE_ID for r in member.roles):
+    
+    # Bot owners bypass everything  
+    if member.id in BOT_OWNER_IDS:
         return True
-    # Per-server trusted / mod role (from ?setnoprefixrole / DB)
-    try:
-        from bot.database import get_trusted_role_id
-        trusted_id = get_trusted_role_id(member.guild.id)
-        if trusted_id and any(r.id == trusted_id for r in member.roles):
-            return True
-    except Exception:
-        pass
 
+    # Check specific Discord permissions
     need = (need or "mod").lower()
-    if need in ("ban",):
-        return bool(perms.ban_members)
-    if need in ("kick",):
-        return bool(perms.kick_members)
-    if need in ("admin", "setup", "config"):
-        return bool(perms.manage_guild or perms.manage_channels)
-    # default mod actions
-    return bool(
-        perms.moderate_members
-        or perms.manage_messages
-        or perms.kick_members
-        or perms.ban_members
-    )
+    
+    if need == "ban":
+        return perms.ban_members
+    
+    elif need == "kick":
+        return perms.kick_members or perms.ban_members
+    
+    elif need in ("admin", "setup", "config"):
+        return perms.manage_guild
+    
+    else:  # Default "mod" level
+        return (
+            perms.moderate_members or 
+            perms.manage_messages or 
+            perms.kick_members or 
+            perms.ban_members
+        )
 
 
 def staff_check(need: str = "mod"):
-    """Prefix-command check: Discord perms + optional mod role (option C)."""
+    """Discord permission-based command check (like Dyno)."""
     async def predicate(ctx: commands.Context) -> bool:
         if ctx.guild is None:
             return False
@@ -138,9 +143,16 @@ def staff_check(need: str = "mod"):
             return False
         if is_staff(member, need=need):
             return True
-        raise commands.CheckFailure(
-            "❌ You need **mod permissions** (or the staff role) to use this command."
-        )
+        
+        # Better error messages based on permission needed
+        perm_map = {
+            "mod": "**Moderate Members** or **Manage Messages**",
+            "kick": "**Kick Members**", 
+            "ban": "**Ban Members**",
+            "admin": "**Manage Server**"
+        }
+        required = perm_map.get(need, "**moderation permissions**")
+        raise commands.CheckFailure(f"❌ You need {required} permission to use this command.")
     return commands.check(predicate)
 
 # --- AUTOMOD INITIALIZATION PARAMETERS ---
@@ -222,7 +234,7 @@ mod_group = app_commands.Group(
 
 # --- SLASH COMMAND STAFF CHECK (option C) ---
 def has_required_slash_role(need: str = "mod"):
-    """Slash check: Discord permissions OR staff/trusted role."""
+    """Discord permission-based slash command check (like Dyno)."""
     def predicate(interaction: discord.Interaction) -> bool:
         if interaction.guild is None:
             return False

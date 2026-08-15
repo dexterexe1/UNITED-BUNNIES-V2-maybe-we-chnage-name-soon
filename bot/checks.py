@@ -5,7 +5,7 @@ Extracted from the original monolithic bot.py. Logic unchanged.
 import discord
 from discord.ext import commands
 
-from bot.config import bot, REQUIRED_ROLE_ID
+from bot.config import bot, BOT_OWNER_IDS, is_staff
 from bot.database import (
     is_feature_disabled,
     get_command_permission_roles,
@@ -13,9 +13,9 @@ from bot.database import (
 from bot import mongo_bridge
 
 # Commands with no configured roles stay open to everyone (opt-in restriction
-# model). Staff (REQUIRED_ROLE_ID) always bypass restrictions so they can
-# never lock themselves out. Applies to every prefix/hybrid command; pure
-# app_commands.Group commands (like /mod ...) already gate on the staff role.
+# model). Staff with proper Discord permissions always bypass restrictions.
+# Applies to every prefix/hybrid command; pure app_commands.Group commands
+# (like /mod ...) already gate on the staff role.
 CMDPERM_EXEMPT_COMMANDS = {"cmdperm-allow", "cmdperm-deny", "cmdperm-list", "cmdperm-reset", "help"}
 
 
@@ -41,8 +41,13 @@ async def global_command_permission_check(ctx: commands.Context) -> bool:
 
     member = ctx.author
     if isinstance(member, discord.Member):
-        if any(r.id == REQUIRED_ROLE_ID for r in member.roles):
+        # Bot owners bypass everything
+        if member.id in BOT_OWNER_IDS:
             return True
+        # Staff with proper permissions bypass
+        if is_staff(member):
+            return True
+        # Check if user has allowed role
         if any(r.id in allowed_roles for r in member.roles):
             return True
 

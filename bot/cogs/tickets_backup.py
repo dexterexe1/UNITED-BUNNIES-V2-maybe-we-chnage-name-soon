@@ -13,7 +13,7 @@ import datetime
 import asyncio
 import re
 
-from bot.config import bot, quick_embed, REQUIRED_ROLE_ID, TICKET_CATEGORY_NAME, UTC
+from bot.config import bot, quick_embed, TICKET_CATEGORY_NAME, UTC, staff_check
 from bot.database import (
     create_ticket_record,
     close_ticket_record,
@@ -22,6 +22,7 @@ from bot.database import (
     get_ticket_record,
     get_open_ticket_for_user,
     list_open_tickets,
+    get_trusted_role_id,
 )
 
 TICKET_TYPES = {
@@ -58,7 +59,7 @@ async def open_new_ticket(
     )
 
     category = await get_or_create_ticket_category(guild)
-    staff_role = guild.get_role(REQUIRED_ROLE_ID)
+    # Staff access is managed by Discord permissions, not roles
 
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(
@@ -209,9 +210,7 @@ class TicketManageView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
-        staff_role = interaction.guild.get_role(
-            REQUIRED_ROLE_ID
-        )
+        # Staff access is managed by Discord permissions, not roles
 
         is_staff = (
             staff_role
@@ -301,9 +300,7 @@ class TicketManageView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
-        staff_role = interaction.guild.get_role(
-            REQUIRED_ROLE_ID
-        )
+        # Staff access is managed by Discord permissions, not roles
 
         is_staff = (
             staff_role
@@ -336,9 +333,7 @@ class TicketManageView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
-        staff_role = interaction.guild.get_role(
-            REQUIRED_ROLE_ID
-        )
+        # Staff access is managed by Discord permissions, not roles
 
         is_staff = (
             staff_role
@@ -428,7 +423,7 @@ class TicketPanelView(discord.ui.View):
     aliases=["tp"],
     description="[Staff] Post a button-based ticket-creation panel",
 )
-@commands.has_role(REQUIRED_ROLE_ID)
+@staff_check("admin")
 async def ticket_panel_prefix(ctx):
     embed = discord.Embed(
         title="🎫 Support Tickets",
@@ -491,9 +486,7 @@ async def close_ticket_prefix(ctx):
         )
         return
 
-    staff_role = ctx.guild.get_role(
-        REQUIRED_ROLE_ID
-    )
+    # Staff access is managed by Discord permissions, not roles
 
     is_staff = (
         staff_role
@@ -537,7 +530,7 @@ async def close_ticket_prefix(ctx):
     aliases=["ticketlist"],
     description="[Staff] List all currently open tickets",
 )
-@commands.has_role(REQUIRED_ROLE_ID)
+@staff_check("admin")
 async def list_tickets_prefix(ctx):
     rows = list_open_tickets(
         ctx.guild.id

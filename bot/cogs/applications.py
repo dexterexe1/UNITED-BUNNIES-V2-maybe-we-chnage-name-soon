@@ -11,8 +11,8 @@ import datetime
 import aiohttp
 
 from bot.config import (
-    bot, quick_embed, REQUIRED_ROLE_ID, UTC, has_required_slash_role, mod_group,
-    now_playing,
+    bot, quick_embed, UTC, has_required_slash_role, mod_group,
+    now_playing, staff_check,
     BOT_API_SECRET, DASHBOARD_URL,
 )
 from bot import mongo_bridge
@@ -350,7 +350,7 @@ class ControlPanelView(discord.ui.View):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.hybrid_command(name="panel", description="[Staff] Post the interactive control panel")
-@commands.has_role(REQUIRED_ROLE_ID)
+@staff_check("admin")
 async def control_panel_prefix(ctx):
     embed = discord.Embed(
         title="🕹️ Server Control Panel",

@@ -6,7 +6,7 @@ import sqlite3
 import datetime
 import discord
 
-from bot.config import REQUIRED_ROLE_ID
+from bot.config import BOT_OWNER_IDS
 
 UTC = datetime.timezone.utc
 DB_FILE = "bot_data.db"
@@ -358,13 +358,11 @@ def list_noprefix_users(guild_id: int):
     return [r[0] for r in rows]
 
 def has_noprefix_perm(guild: discord.Guild, member: discord.Member) -> bool:
-    """Staff (REQUIRED_ROLE_ID), the guild's trusted role, and individually-granted
-    users are all allowed to run commands without the '?' prefix."""
-    if any(r.id == REQUIRED_ROLE_ID for r in member.roles):
+    """Bot owners and individually-granted users can run commands without '?' prefix."""
+    # Bot owners bypass everything
+    if member.id in BOT_OWNER_IDS:
         return True
-    trusted_id = get_trusted_role_id(guild.id)
-    if trusted_id and any(r.id == trusted_id for r in member.roles):
-        return True
+    # Check individual database grants
     return is_noprefix_user(guild.id, member.id)
 
 

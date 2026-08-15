@@ -9,7 +9,7 @@ import discord.app_commands as app_commands
 import asyncio
 import re
 
-from bot.config import bot, quick_embed, REQUIRED_ROLE_ID
+from bot.config import bot, quick_embed, staff_check
 from bot.database import (
     add_reaction_role, remove_reaction_role, get_reaction_role,
     add_role_menu_items, get_role_menu_items, get_all_role_menu_message_ids,
@@ -164,7 +164,7 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
             pass
 
 @bot.hybrid_command(name="reactionrole", aliases=["rr"], description="Bind or remove an emoji-role reaction on a message")
-@commands.has_role(REQUIRED_ROLE_ID)
+@staff_check("admin")
 @app_commands.describe(message_id="The ID of the message to bind to", emoji="The emoji to react with", role="Role to grant (omit to remove the binding)")
 async def reaction_role_command(ctx, message_id: str, emoji: str, role: discord.Role = None):
     """

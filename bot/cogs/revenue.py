@@ -13,9 +13,10 @@ from bot.config import (
     bot, style_embed, BRAND_COLOR, UTC, staff_check, is_staff,
     EMOJI_BULLET, BRAND_EMOJI
 )
-from bot.database import (
-    add_revenue_entry, get_revenue_entries, get_revenue_summary_by_staff,
-    get_revenue_channel, set_revenue_channel, clear_revenue_channel
+from bot.revenue_database import (
+    add_revenue_entry, get_revenue_entries, get_revenue_summary,
+    get_revenue_channel, set_revenue_channel, clear_revenue_channel,
+    get_multi_staff_entries, get_total_entries_count
 )
 
 # Expected format (FLEXIBLE):

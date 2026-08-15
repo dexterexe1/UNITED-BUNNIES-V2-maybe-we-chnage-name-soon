@@ -8,7 +8,7 @@ from discord.ext import commands
 import discord.app_commands as app_commands
 import datetime
 
-from bot.config import bot, quick_embed, REQUIRED_ROLE_ID, mod_group, has_required_slash_role, UTC
+from bot.config import bot, quick_embed, UTC, mod_group, has_required_slash_role, staff_check
 from bot.cogs.community import build_help_home_embed, HelpView
 from bot.database import (
     set_config, get_config,
@@ -80,6 +80,32 @@ async def mod_help_slash(interaction: discord.Interaction):
         value=(
             "• `?p [text]` — Generates the matrix announcement template with custom block structures.\n"
             "• `?ticketpanel` — Posts a standalone button for members to open support tickets."
+        ), 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="`💰 Revenue Tracking`", 
+        value=(
+            "• `?setrevenuechannel #channel` — Enable automatic revenue tracking.\n"
+            "• `?weekrevenue` / `?week` — Last 7 days report.\n"
+            "• `?monthrevenue` / `?month` — Last 30 days report.\n"
+            "• `?todayrevenue` / `?today` — Today's report.\n"
+            "• `?allrevenue` — All-time report (Admin only).\n"
+            "• `?revenuevia \"staff\"` — Specific staff member report.\n"
+            "• `?revenuedetails [days]` — Transaction history.\n"
+            "• `?revenuehelp` — Show format & setup guide."
+        ), 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="`🎭 Role Information`", 
+        value=(
+            "• `?roles` — List all server roles.\n"
+            "• `?roleinfo [@role]` — Show role with key permissions.\n"
+            "• `?rolefullinfo @role` — Complete role details & permissions.\n"
+            "• `?rolehelp` — Show help."
         ), 
         inline=False
     )
@@ -300,8 +326,8 @@ async def unban_slash(interaction: discord.Interaction, user_id: str, reason: st
 #     🔐 PER-COMMAND ROLE PERMISSIONS (/cmdperm-*)
 # ==========================================
 # Lets staff restrict any prefix/hybrid command to one or more roles. A
-# command with no restrictions configured stays open to everyone. Staff
-# (REQUIRED_ROLE_ID) can always use every command regardless of this table.
+# command with no restrictions configured stays open to everyone. Staff with
+# proper Discord permissions can always use every command regardless of this table.
 
 @bot.tree.command(name="cmdperm-allow", description="🔐 [Mod] Restrict a command to a specific role.")
 @has_required_slash_role()
@@ -397,7 +423,7 @@ async def list_commands_slash(interaction: discord.Interaction):
 
 
 @bot.hybrid_command(name="disable", description="[Staff] Disable a command/module from Discord")
-@commands.has_role(REQUIRED_ROLE_ID)
+@staff_check("admin")
 @app_commands.describe(feature="Name of command or module", type="command or module")
 async def disable_prefix(ctx, feature: str, type: str = "command"):
     feature = feature.lower()
@@ -407,7 +433,7 @@ async def disable_prefix(ctx, feature: str, type: str = "command"):
     await ctx.send(view=quick_card_view(f"🔒 **{feature}** ({type}) has been disabled for this server."))
 
 @bot.hybrid_command(name="enable", description="[Staff] Enable a command/module from Discord")
-@commands.has_role(REQUIRED_ROLE_ID)
+@staff_check("admin")
 @app_commands.describe(feature="Name of command or module", type="command or module")
 async def enable_prefix(ctx, feature: str, type: str = "command"):
     feature = feature.lower()

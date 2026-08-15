@@ -13,11 +13,11 @@ import re
 import time
 
 from bot.config import (
-    bot, quick_embed, style_embed, REQUIRED_ROLE_ID, UTC, BRAND_COLOR,
+    bot, quick_embed, style_embed, UTC, BRAND_COLOR,
     user_message_cooldowns, afk_users, _recent_messages,
     xp_cooldowns, XP_COOLDOWN_SECONDS, XP_MIN, XP_MAX,
     LEVELING_SYSTEM_ENABLED,
-    EMOJI_BULLET,
+    EMOJI_BULLET, BOT_OWNER_IDS,
 )
 from bot.database import (
     get_config, get_welcome_message, format_welcome_message,

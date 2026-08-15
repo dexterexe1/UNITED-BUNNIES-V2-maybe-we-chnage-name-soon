@@ -80,95 +80,95 @@ async def command_enabled_check(ctx):
 #         BOT OWNER MANAGEMENT
 # ==========================================
 
-@bot.command(name="addowner", help="Add a bot owner (current owners only)")
-async def add_owner_cmd(ctx: commands.Context, user: discord.User):
-    """Add a new bot owner."""
-    # Check if command issuer is a bot owner
+@bot.command(name="addrevenuemanager", aliases=["addrmanager"], help="Add a revenue manager (current managers only)")
+async def add_revenue_manager_cmd(ctx: commands.Context, user: discord.User):
+    """Add a new revenue manager."""
+    # Check if command issuer is a revenue manager
     if not is_bot_owner(ctx.author.id):
         await ctx.send(
             embed=style_embed(
                 title="❌ Unauthorized",
-                description="Only existing bot owners can add new owners.",
+                description="Only existing revenue managers can add new managers.",
                 kind="error"
             )
         )
         return
     
-    # Check if user is already an owner
+    # Check if user is already a manager
     if is_bot_owner(user.id):
         await ctx.send(
             embed=style_embed(
-                title="ℹ️ Already Owner",
-                description=f"{user.mention} is already a bot owner.",
+                title="ℹ️ Already Manager",
+                description=f"{user.mention} is already a revenue manager.",
                 kind="info"
             )
         )
         return
     
-    # Add owner
+    # Add manager
     add_bot_owner(user.id, user.name)
     
     embed = style_embed(
-        title=f"{BRAND_EMOJI} Owner Added",
-        description=f"✅ {user.mention} has been added as a bot owner.\n"
-                   f"They now have full control over the bot.",
+        title=f"{BRAND_EMOJI} Revenue Manager Added",
+        description=f"✅ {user.mention} has been added as a revenue manager.\n"
+                   f"They can now access revenue reports and manage the system.",
         kind="success"
     )
     await ctx.send(embed=embed)
 
 
-@bot.command(name="removeowner", help="Remove a bot owner (owners only)")
-async def remove_owner_cmd(ctx: commands.Context, user: discord.User):
-    """Remove a bot owner."""
-    # Check if command issuer is a bot owner
+@bot.command(name="removemanager", aliases=["removermanager"], help="Remove a revenue manager (managers only)")
+async def remove_manager_cmd(ctx: commands.Context, user: discord.User):
+    """Remove a revenue manager."""
+    # Check if command issuer is a revenue manager
     if not is_bot_owner(ctx.author.id):
         await ctx.send(
             embed=style_embed(
                 title="❌ Unauthorized",
-                description="Only bot owners can remove owners.",
+                description="Only revenue managers can remove managers.",
                 kind="error"
             )
         )
         return
     
-    # Can't remove yourself if you're the only owner
+    # Can't remove yourself if you're the only manager
     owners = get_bot_owners()
     if len(owners) == 1 and is_bot_owner(user.id):
         await ctx.send(
             embed=style_embed(
                 title="❌ Cannot Remove",
-                description="You cannot remove the last bot owner. Add another owner first.",
+                description="You cannot remove the last revenue manager. Add another manager first.",
                 kind="error"
             )
         )
         return
     
-    # Remove owner
+    # Remove manager
     if remove_bot_owner(user.id):
         embed = style_embed(
-            title=f"{BRAND_EMOJI} Owner Removed",
-            description=f"✅ {user.mention} has been removed as a bot owner.",
+            title=f"{BRAND_EMOJI} Manager Removed",
+            description=f"✅ {user.mention} has been removed as a revenue manager.",
             kind="success"
         )
     else:
         embed = style_embed(
-            title="ℹ️ Not an Owner",
-            description=f"{user.mention} is not a bot owner.",
+            title="ℹ️ Not a Manager",
+            description=f"{user.mention} is not a revenue manager.",
             kind="info"
         )
     
     await ctx.send(embed=embed)
 
 
-@bot.command(name="listowners", help="List all bot owners")
-async def list_owners_cmd(ctx: commands.Context):
-    """List all bot owners."""
+@bot.command(name="listmanagers", aliases=["revenuemanagers"], help="List all revenue managers")
+async def list_managers_cmd(ctx: commands.Context):
+    """List all revenue managers."""
     owners = get_bot_owners()
     
     if not owners:
-        description = "No bot owners have been set yet.\n\nUse `?addowner @user` to add one."
+        description = "No revenue managers have been set yet.\n\nUse `?addrevenuemanager @user` to add one."
     else:
-        description = "**Bot Owners:**\n\n"
+        description = "**Revenue Managers:**\n\n"
         for owner_id, owner_name in owners:
             user = bot.get_user(owner_id)
             if user:
@@ -177,7 +177,7 @@ async def list_owners_cmd(ctx: commands.Context):
                 description += f"• {owner_name} (ID: `{owner_id}`)\n"
     
     embed = style_embed(
-        title=f"{BRAND_EMOJI} Bot Owners",
+        title=f"{BRAND_EMOJI} Revenue Managers",
         description=description,
         color=BRAND_COLOR,
         kind="info"
@@ -439,8 +439,8 @@ async def bot_status_cmd(ctx: commands.Context):
         description += "❌ **No-Prefix System:** `DISABLED`\n"
         description += "   All users must use `?` prefix\n\n"
     
-    # Bot owners
-    description += f"👑 **Bot Owners:** `{len(owners)}`\n"
+    # Bot managers
+    description += f"👑 **Revenue Managers:** `{len(owners)}`\n"
     if owners:
         for owner_id, owner_name in owners[:3]:  # Show first 3
             user = bot.get_user(owner_id)
