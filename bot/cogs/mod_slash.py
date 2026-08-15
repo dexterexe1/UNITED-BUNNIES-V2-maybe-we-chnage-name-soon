@@ -94,7 +94,8 @@ async def mod_help_slash(interaction: discord.Interaction):
             "• `?allrevenue` — All-time report (Admin only).\n"
             "• `?revenuevia \"staff\"` — Specific staff member report.\n"
             "• `?revenuedetails [days]` — Transaction history.\n"
-            "• `?revenuehelp` — Show format & setup guide."
+            "• `?revenuehelp` — Show format & setup guide.\n"
+            "• **All staff/mods can use revenue commands automatically!**"
         ), 
         inline=False
     )

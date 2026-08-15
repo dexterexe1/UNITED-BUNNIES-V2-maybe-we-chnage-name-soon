@@ -1,104 +1,95 @@
 """
-revenue_database.py — Separate database ONLY for revenue tracking.
-This database can be hosted on Supabase (PostgreSQL) while other data stays in MongoDB.
+revenue_database.py — Revenue tracking using MongoDB.
+Stores revenue data in the same MongoDB as other bot data.
 """
 import os
 import datetime
-from typing import List, Tuple, Optional
-import psycopg2
-from psycopg2.extras import RealDictCursor
+from typing import List, Dict, Optional
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 UTC = datetime.timezone.utc
 
-# Environment variable for revenue database connection
-REVENUE_DB_URL = os.getenv("REVENUE_DB_URL", "postgresql://localhost/revenue_data")
+# MongoDB connection
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+client = None
+db: AsyncIOMotorDatabase = None
 
-def get_connection():
-    """Get database connection."""
-    return psycopg2.connect(REVENUE_DB_URL, cursor_factory=RealDictCursor)
-
-def init_revenue_db():
-    """Initialize the revenue-only database."""
+async def init_revenue_db():
+    """Initialize MongoDB connection for revenue tracking."""
+    global client, db
     try:
-        conn = get_connection()
-        cursor = conn.cursor()
+        client = AsyncIOMotorClient(MONGODB_URL)
+        db = client["united_bunnies"]
         
-        # Revenue entries table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS revenue_entries (
-                id SERIAL PRIMARY KEY,
-                guild_id BIGINT NOT NULL,
-                user_name TEXT NOT NULL,
-                service TEXT NOT NULL,
-                payment TEXT NOT NULL,
-                paid_to TEXT NOT NULL,
-                done_by_id BIGINT,
-                done_by_name TEXT,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                message_id BIGINT,
-                channel_id BIGINT
-            )
-        """)
+        # Create collections if they don't exist
+        collections = await db.list_collection_names()
         
-        # Revenue channels table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS revenue_channels (
-                guild_id BIGINT PRIMARY KEY,
-                channel_id BIGINT NOT NULL,
-                setup_by BIGINT NOT NULL,
-                setup_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        if "revenue_entries" not in collections:
+            await db.create_collection("revenue_entries")
+            await db["revenue_entries"].create_index("guild_id")
+            await db["revenue_entries"].create_index("timestamp")
         
-        conn.commit()
-        conn.close()
-        print("✅ Revenue database initialized successfully!")
+        if "revenue_channels" not in collections:
+            await db.create_collection("revenue_channels")
+            await db["revenue_channels"].create_index("guild_id", unique=True)
+        
+        print("✅ Revenue MongoDB initialized successfully!")
     except Exception as e:
-        print(f"❌ Database initialization failed: {e}")
+        print(f"⚠️ Revenue MongoDB initialization failed: {e}")
 
 # ==========================================
 #         REVENUE CHANNEL MANAGEMENT
 # ==========================================
 
-def set_revenue_channel(guild_id: int, channel_id: int, setup_by: int) -> None:
+async def set_revenue_channel(guild_id: int, channel_id: int, setup_by: int) -> None:
     """Set the revenue tracking channel for a guild."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO revenue_channels (guild_id, channel_id, setup_by)
-        VALUES (%s, %s, %s)
-        ON CONFLICT (guild_id) DO UPDATE SET 
-            channel_id = EXCLUDED.channel_id,
-            setup_by = EXCLUDED.setup_by,
-            setup_at = CURRENT_TIMESTAMP
-    """, (guild_id, channel_id, setup_by))
-    conn.commit()
-    conn.close()
+    if not db:
+        return
+    
+    try:
+        await db["revenue_channels"].update_one(
+            {"guild_id": guild_id},
+            {
+                "$set": {
+                    "channel_id": channel_id,
+                    "setup_by": setup_by,
+                    "setup_at": datetime.datetime.now(UTC)
+                }
+            },
+            upsert=True
+        )
+    except Exception as e:
+        print(f"⚠️ Failed to set revenue channel: {e}")
 
-def get_revenue_channel(guild_id: int) -> Optional[int]:
+async def get_revenue_channel(guild_id: int) -> Optional[int]:
     """Get the revenue channel ID for a guild."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT channel_id FROM revenue_channels WHERE guild_id = %s", (guild_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result['channel_id'] if result else None
+    if not db:
+        return None
+    
+    try:
+        result = await db["revenue_channels"].find_one({"guild_id": guild_id})
+        return result["channel_id"] if result else None
+    except Exception as e:
+        print(f"⚠️ Failed to get revenue channel: {e}")
+        return None
 
-def clear_revenue_channel(guild_id: int) -> bool:
+async def clear_revenue_channel(guild_id: int) -> bool:
     """Remove revenue tracking for a guild."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM revenue_channels WHERE guild_id = %s", (guild_id,))
-    changed = cursor.rowcount > 0
-    conn.commit()
-    conn.close()
-    return changed
+    if not db:
+        return False
+    
+    try:
+        result = await db["revenue_channels"].delete_one({"guild_id": guild_id})
+        return result.deleted_count > 0
+    except Exception as e:
+        print(f"⚠️ Failed to clear revenue channel: {e}")
+        return False
 
 # ==========================================
 #         REVENUE ENTRY MANAGEMENT
 # ==========================================
 
-def add_revenue_entry(
+async def add_revenue_entry(
     guild_id: int,
     user_name: str,
     service: str,
@@ -110,121 +101,135 @@ def add_revenue_entry(
     channel_id: Optional[int] = None
 ) -> None:
     """Add a new revenue entry."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO revenue_entries 
-        (guild_id, user_name, service, payment, paid_to, done_by_id, done_by_name, message_id, channel_id)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """, (guild_id, user_name, service, payment, paid_to, done_by_id, done_by_name, message_id, channel_id))
-    conn.commit()
-    conn.close()
+    if not db:
+        return
+    
+    try:
+        await db["revenue_entries"].insert_one({
+            "guild_id": guild_id,
+            "user_name": user_name,
+            "service": service,
+            "payment": payment,
+            "paid_to": paid_to,
+            "done_by_id": done_by_id,
+            "done_by_name": done_by_name,
+            "message_id": message_id,
+            "channel_id": channel_id,
+            "timestamp": datetime.datetime.now(UTC)
+        })
+    except Exception as e:
+        print(f"⚠️ Failed to add revenue entry: {e}")
 
-def get_revenue_entries(
+async def get_revenue_entries(
     guild_id: int,
     days: Optional[int] = None,
     staff_name: Optional[str] = None
-) -> List[dict]:
+) -> List[Dict]:
     """Get revenue entries with optional filtering."""
-    conn = get_connection()
-    cursor = conn.cursor()
+    if not db:
+        return []
     
-    query = "SELECT * FROM revenue_entries WHERE guild_id = %s"
-    params = [guild_id]
-    
-    if days:
-        query += " AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '%s days'"
-        params.append(days)
-    
-    if staff_name:
-        query += " AND (paid_to ILIKE %s OR done_by_name ILIKE %s)"
-        params.extend([f"%{staff_name}%", f"%{staff_name}%"])
-    
-    query += " ORDER BY timestamp DESC"
-    
-    cursor.execute(query, params)
-    results = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in results]
-
-def get_revenue_summary(guild_id: int, days: Optional[int] = None) -> dict:
-    """Get revenue summary grouped by staff and payment type."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    query = """
-        SELECT paid_to, payment, COUNT(*) as count
-        FROM revenue_entries 
-        WHERE guild_id = %s
-    """
-    params = [guild_id]
-    
-    if days:
-        query += " AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '%s days'"
-        params.append(days)
-    
-    query += " GROUP BY paid_to, payment ORDER BY paid_to, count DESC"
-    
-    cursor.execute(query, params)
-    results = cursor.fetchall()
-    conn.close()
-    
-    # Group by staff member
-    summary = {}
-    for row in results:
-        paid_to = row['paid_to']
-        payment = row['payment']
-        count = row['count']
+    try:
+        query = {"guild_id": guild_id}
         
-        if paid_to not in summary:
-            summary[paid_to] = {}
-        summary[paid_to][payment] = count
-    
-    return summary
+        if days:
+            cutoff = datetime.datetime.now(UTC) - datetime.timedelta(days=days)
+            query["timestamp"] = {"$gte": cutoff}
+        
+        if staff_name:
+            query["$or"] = [
+                {"paid_to": {"$regex": staff_name, "$options": "i"}},
+                {"done_by_name": {"$regex": staff_name, "$options": "i"}}
+            ]
+        
+        cursor = db["revenue_entries"].find(query).sort("timestamp", -1)
+        results = await cursor.to_list(length=None)
+        return results
+    except Exception as e:
+        print(f"⚠️ Failed to get revenue entries: {e}")
+        return []
 
-def get_multi_staff_entries(guild_id: int, days: Optional[int] = None) -> List[dict]:
+async def get_revenue_summary(guild_id: int, days: Optional[int] = None) -> dict:
+    """Get revenue summary grouped by staff and payment type."""
+    if not db:
+        return {}
+    
+    try:
+        match_query = {"guild_id": guild_id}
+        
+        if days:
+            cutoff = datetime.datetime.now(UTC) - datetime.timedelta(days=days)
+            match_query["timestamp"] = {"$gte": cutoff}
+        
+        pipeline = [
+            {"$match": match_query},
+            {
+                "$group": {
+                    "_id": {"paid_to": "$paid_to", "payment": "$payment"},
+                    "count": {"$sum": 1}
+                }
+            },
+            {"$sort": {"_id.paid_to": 1, "count": -1}}
+        ]
+        
+        results = await db["revenue_entries"].aggregate(pipeline).to_list(length=None)
+        
+        # Group by staff member
+        summary = {}
+        for doc in results:
+            paid_to = doc["_id"]["paid_to"]
+            payment = doc["_id"]["payment"]
+            count = doc["count"]
+            
+            if paid_to not in summary:
+                summary[paid_to] = {}
+            summary[paid_to][payment] = count
+        
+        return summary
+    except Exception as e:
+        print(f"⚠️ Failed to get revenue summary: {e}")
+        return {}
+
+async def get_multi_staff_entries(guild_id: int, days: Optional[int] = None) -> List[Dict]:
     """Get entries where multiple staff were involved (done_by is set)."""
-    conn = get_connection()
-    cursor = conn.cursor()
+    if not db:
+        return []
     
-    query = """
-        SELECT * FROM revenue_entries 
-        WHERE guild_id = %s AND done_by_id IS NOT NULL
-    """
-    params = [guild_id]
-    
-    if days:
-        query += " AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '%s days'"
-        params.append(days)
-    
-    query += " ORDER BY timestamp DESC"
-    
-    cursor.execute(query, params)
-    results = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in results]
+    try:
+        query = {"guild_id": guild_id, "done_by_id": {"$ne": None}}
+        
+        if days:
+            cutoff = datetime.datetime.now(UTC) - datetime.timedelta(days=days)
+            query["timestamp"] = {"$gte": cutoff}
+        
+        cursor = db["revenue_entries"].find(query).sort("timestamp", -1)
+        results = await cursor.to_list(length=None)
+        return results
+    except Exception as e:
+        print(f"⚠️ Failed to get multi-staff entries: {e}")
+        return []
 
-def delete_revenue_entry(entry_id: int) -> bool:
+async def delete_revenue_entry(entry_id: str) -> bool:
     """Delete a revenue entry by ID."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM revenue_entries WHERE id = %s", (entry_id,))
-    changed = cursor.rowcount > 0
-    conn.commit()
-    conn.close()
-    return changed
+    if not db:
+        return False
+    
+    try:
+        from bson import ObjectId
+        result = await db["revenue_entries"].delete_one({"_id": ObjectId(entry_id)})
+        return result.deleted_count > 0
+    except Exception as e:
+        print(f"⚠️ Failed to delete revenue entry: {e}")
+        return False
 
-def get_total_entries_count(guild_id: int) -> int:
+async def get_total_entries_count(guild_id: int) -> int:
     """Get total number of revenue entries for a guild."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) as count FROM revenue_entries WHERE guild_id = %s", (guild_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result['count'] if result else 0
-
-# Initialize database on import (with error handling)
-try:
-    init_revenue_db()
-except Exception as e:
-    print(f"Revenue database initialization skipped: {e}")
+    if not db:
+        return 0
+    
+    try:
+        count = await db["revenue_entries"].count_documents({"guild_id": guild_id})
+        return count
+    except Exception as e:
+        print(f"⚠️ Failed to get entry count: {e}")
+        return 0
