@@ -176,7 +176,7 @@ async def validate_and_record_revenue(message: discord.Message):
 @staff_check(need="mod")
 async def set_revenue_channel_cmd(ctx: commands.Context, channel: discord.TextChannel):
     """Set which channel should be monitored for revenue reports."""
-    set_revenue_channel(ctx.guild.id, channel.id)
+    set_revenue_channel(ctx.guild.id, channel.id, ctx.author.id)
     
     embed = style_embed(
         title="Revenue Tracking Enabled",
