@@ -16,6 +16,7 @@ if _ROOT not in sys.path:
 # `import bot.xxx` rebinds the name `bot` to the package and would break `.run()`.
 from bot.config import bot as client
 from bot.database import init_db
+from bot.revenue_database import init_revenue_db
 from bot.status import run_server
 
 # Initialize SQLite schema

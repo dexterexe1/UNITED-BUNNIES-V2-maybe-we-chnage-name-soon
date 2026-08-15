@@ -64,6 +64,15 @@ async def on_ready():
     for name in ("help", "ping", "play", "warn", "vouch"):
         c = bot.get_command(name)
         print(f"   - {name}: {'OK' if c else 'MISSING'}")
+    
+    # Initialize revenue database
+    try:
+        from bot.revenue_database import init_revenue_db
+        await init_revenue_db()
+        print("✅ Revenue database initialized")
+    except Exception as e:
+        print(f"⚠️ Revenue database init error: {e}")
+    
     await publish_bot_status()
     if _ready_initialized:
         return

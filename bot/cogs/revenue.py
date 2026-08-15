@@ -70,7 +70,7 @@ async def validate_and_record_revenue(message: discord.Message):
     Validates format, stores in database, and provides feedback.
     """
     # Check if this is the revenue channel
-    revenue_channel_id = get_revenue_channel(message.guild.id)
+    revenue_channel_id = await get_revenue_channel(message.guild.id)
     if not revenue_channel_id or message.channel.id != revenue_channel_id:
         return False
     
@@ -138,7 +138,7 @@ async def validate_and_record_revenue(message: discord.Message):
     
     # Record in database
     try:
-        add_revenue_entry(
+        await add_revenue_entry(
             guild_id=message.guild.id,
             user_id=user_id,
             user_name=user_display,
@@ -176,7 +176,7 @@ async def validate_and_record_revenue(message: discord.Message):
 @staff_check(need="mod")
 async def set_revenue_channel_cmd(ctx: commands.Context, channel: discord.TextChannel):
     """Set which channel should be monitored for revenue reports."""
-    set_revenue_channel(ctx.guild.id, channel.id, ctx.author.id)
+    await set_revenue_channel(ctx.guild.id, channel.id, ctx.author.id)
     
     embed = style_embed(
         title="Revenue Tracking Enabled",
@@ -191,7 +191,7 @@ async def set_revenue_channel_cmd(ctx: commands.Context, channel: discord.TextCh
 @staff_check(need="admin")
 async def clear_revenue_channel_cmd(ctx: commands.Context):
     """Stop tracking revenue reports."""
-    clear_revenue_channel(ctx.guild.id)
+    await clear_revenue_channel(ctx.guild.id)
     
     embed = style_embed(
         title="Revenue Tracking Disabled",
@@ -237,7 +237,7 @@ async def generate_revenue_report(ctx: commands.Context, days: int = None, perio
     """Generate a formatted revenue report grouped by staff and showing services provided."""
     
     # Get all entries
-    entries = get_revenue_entries(ctx.guild.id, days=days)
+    entries = await get_revenue_entries(ctx.guild.id, days=days)
     
     if not entries:
         embed = style_embed(
@@ -355,7 +355,7 @@ async def generate_revenue_report(ctx: commands.Context, days: int = None, perio
 async def revenue_details(ctx: commands.Context, days: int = 7):
     """Show detailed list of recent revenue entries."""
     
-    entries = get_revenue_entries(ctx.guild.id, days=days)
+    entries = await get_revenue_entries(ctx.guild.id, days=days)
     
     if not entries:
         embed = style_embed(
@@ -409,7 +409,7 @@ async def revenue_via_staff(ctx: commands.Context, *, staff_name: str, days: int
     """Show all services provided by a specific staff member."""
     
     # Get all entries
-    all_entries = get_revenue_entries(ctx.guild.id, days=days)
+    all_entries = await get_revenue_entries(ctx.guild.id, days=days)
     
     if not all_entries:
         embed = style_embed(
