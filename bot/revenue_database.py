@@ -46,6 +46,12 @@ async def init_revenue_db():
             await db.create_collection("revenue_channels")
             await db["revenue_channels"].create_index("guild_id", unique=True)
             print("✅ Created revenue_channels collection")
+
+        if "revenue_managers" not in collections:
+            await db.create_collection("revenue_managers")
+            await db["revenue_managers"].create_index("guild_id", unique=True)
+            await db["revenue_managers"].create_index("next_weekly_dm_at")
+            print("✅ Created revenue_managers collection")
         
         print("✅ Revenue database initialized successfully!")
     except Exception as e:
@@ -102,6 +108,82 @@ async def clear_revenue_channel(guild_id: int) -> bool:
         return result.deleted_count > 0
     except Exception as e:
         print(f"⚠️ Failed to clear revenue channel: {e}")
+        return False
+
+
+# ==========================================
+#         REVENUE MANAGER MANAGEMENT
+# ==========================================
+
+async def set_revenue_manager(guild_id: int, manager_user_id: int, setup_by: int) -> bool:
+    """Assign one revenue manager for a guild and schedule weekly reminders."""
+    if db is None:
+        return False
+    try:
+        now = datetime.datetime.now(UTC)
+        next_dm = now + datetime.timedelta(days=7)
+        result = await db["revenue_managers"].update_one(
+            {"guild_id": guild_id},
+            {"$set": {
+                "manager_user_id": int(manager_user_id),
+                "setup_by": int(setup_by),
+                "setup_at": now,
+                "last_weekly_dm_at": None,
+                "next_weekly_dm_at": next_dm,
+            }},
+            upsert=True,
+        )
+        print(f"✅ Revenue manager set: guild={guild_id}, manager={manager_user_id}")
+        return result.acknowledged
+    except Exception as e:
+        print(f"❌ Failed to set revenue manager: {e}")
+        return False
+
+
+async def get_revenue_manager(guild_id: int) -> Optional[int]:
+    """Get the assigned revenue manager user ID for a guild."""
+    if db is None:
+        return None
+    try:
+        result = await db["revenue_managers"].find_one({"guild_id": guild_id})
+        return int(result["manager_user_id"]) if result and result.get("manager_user_id") else None
+    except Exception as e:
+        print(f"⚠️ Failed to get revenue manager: {e}")
+        return None
+
+
+async def get_revenue_managers_due(now: Optional[datetime.datetime] = None) -> List[Dict]:
+    """Return revenue managers whose weekly private reminder is due."""
+    if db is None:
+        return []
+    try:
+        now = now or datetime.datetime.now(UTC)
+        cursor = db["revenue_managers"].find({
+            "next_weekly_dm_at": {"$lte": now}
+        })
+        return await cursor.to_list(length=None)
+    except Exception as e:
+        print(f"⚠️ Failed to get due revenue managers: {e}")
+        return []
+
+
+async def mark_revenue_manager_weekly_dm(manager_id, *, sent_at: Optional[datetime.datetime] = None, retry_days: int = 7) -> bool:
+    """Move the next weekly reminder forward after a send attempt."""
+    if db is None or manager_id is None:
+        return False
+    try:
+        from bson import ObjectId
+        now = sent_at or datetime.datetime.now(UTC)
+        result = await db["revenue_managers"].update_one(
+            {"_id": ObjectId(manager_id) if isinstance(manager_id, str) else manager_id},
+            {"$set": {
+                "last_weekly_dm_at": now,
+                "next_weekly_dm_at": now + datetime.timedelta(days=retry_days),
+            }}
+        )
+        return result.matched_count > 0
+    except Exception as e:
+        print(f"⚠️ Failed to update revenue manager reminder: {e}")
         return False
 
 # ==========================================
