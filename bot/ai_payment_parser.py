@@ -34,6 +34,10 @@ def _simple_aliases(payment: str) -> list[str]:
     for value in candidates:
         if value.endswith(" fruit"):
             expanded.append(value[:-6].strip())
+        typo_fixed = re.sub(r"\bpemanent\b|\bpermenant\b|\bpermament\b|\bperment\b|\bpermant\b", "permanent", value)
+        if typo_fixed != value:
+            expanded.append(typo_fixed)
+            value = typo_fixed
         if value.startswith("perm "):
             expanded.append("permanent " + value[5:])
         if value.startswith("permanent "):
@@ -64,10 +68,11 @@ Allowed item names:
 {names_text}
 
 Rules:
-- Ignore capitalization and harmless words such as fruit, physical, perm, and permanent.
+- Ignore capitalization and harmless wording such as fruit, physical, gamepass, skin, limited, item, perm, and permanent.
+- Preserve whether the payment is REGULAR or PERMANENT. "Permanent Buddha" must match "permanent buddha", not regular "buddha".
+- Correct obvious spelling mistakes such as "pemanent" -> "permanent" when the intended item is unambiguous.
 - Choose ONLY an exact item from the list.
 - If the payment is not a Blox Fruits item, return null.
-- If it asks for a permanent variant but no permanent value exists in the list, return null.
 - Never invent an item name.
 
 Return JSON only: {{"matched_name": "EXACT NAME OR null"}}"""

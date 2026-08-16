@@ -31,22 +31,77 @@ FRUIT_SLUGS = [
 
 # Safe human-entry aliases. AI is used only after these deterministic checks fail.
 PAYMENT_ALIASES = {
+    # Regular fruit wording
     "tiger fruit": "tiger",
-    "tiger fruit (regular)": "tiger",
+    "tiger fruit regular": "tiger",
     "regular tiger": "tiger",
     "physical tiger": "tiger",
-    "perm tiger": "permanent tiger",
-    "perm tiger fruit": "permanent tiger",
-    "permanent tiger fruit": "permanent tiger",
-    "permanent tiger (fruit)": "permanent tiger",
+
+    # Generic permanent wording/aliases. The normaliser below handles common typos.
 }
 
-# Permanent values should never silently fall back to regular values. Add agreed
-# server-specific permanent overrides in Render if desired, e.g.
-# BLOX_PERMANENT_TIGER_VALUE=5870000000
-_PERMANENT_VALUE_OVERRIDES = {
-    "permanent tiger": float(os.getenv("BLOX_PERMANENT_TIGER_VALUE", "5870000000")),
+# Permanent fruit values are kept separate from physical/regular fruit values.
+# Values can be overridden per server/environment with BLOX_PERM_<FRUIT>_VALUE.
+# These defaults are fallback values only; they are not used to replace a live
+# value when a trusted live permanent value is available.
+_PERMANENT_VALUE_DEFAULTS = {
+    "west dragon": 15.00e9,
+    "east dragon": 14.00e9,
+    "kitsune": 1.80e9,
+    "control": 8.34e9,
+    "yeti": 6.97e9,
+    "gas": 5.80e9,
+    "tiger": 6.96e9,
+    "lightning": 4.20e9,
+    "venom": 4.84e9,
+    "dough": 5.15e9,
+    "pain": 2.97e9,
+    "t-rex": 4.47e9,
+    "gravity": 4.28e9,
+    "mammoth": 5.57e9,
+    "spirit": 5.80e9,
+    "shadow": 5.15e9,
+    "portal": 3.00e9,
+    "buddha": 2.36e9,
+    "blizzard": 4.26e9,
+    "creation": 2.89e9,
+    "phoenix": 3.36e9,
+    "sound": 3.25e9,
+    "spider": 2.99e9,
+    "love": 2.42e9,
+    "magma": 1.80e9,
+    "quake": 2.02e9,
+    "diamond": 954.16e6,
+    "light": 1.23e9,
+    "ghost": 1.40e9,
+    "eagle": 910.39e6,
+    "rubber": 1.45e9,
+    "ice": 555.53e6,
+    "sand": 774.60e6,
+    "dark": 994.85e6,
+    "flame": 450.78e6,
+    "spike": 139.91e6,
+    "smoke": 120.83e6,
+    "bomb": 90.03e6,
+    "spring": 59.94e6,
+    "blade": 19.91e6,
+    "spin": 15.04e6,
+    "rocket": 9.98e6,
 }
+
+def _permanent_env_key(base_key: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", base_key.casefold()).strip("_")
+    return f"BLOX_PERM_{slug.upper()}_VALUE"
+
+_PERMANENT_VALUE_OVERRIDES = {
+    f"permanent {name}": float(os.getenv(_permanent_env_key(name), str(value)))
+    for name, value in _PERMANENT_VALUE_DEFAULTS.items()
+}
+
+# Backwards compatibility for the old Tiger-specific environment variable.
+if os.getenv("BLOX_PERMANENT_TIGER_VALUE"):
+    _PERMANENT_VALUE_OVERRIDES["permanent tiger"] = float(os.getenv("BLOX_PERMANENT_TIGER_VALUE"))
+
 
 # Last-known baseline values. These keep Tiger and the other regular fruits
 # calculable even when the public site is temporarily unreachable. Live refresh
@@ -285,20 +340,46 @@ async def refresh_blox_values(force: bool = False) -> Tuple[bool, int, Optional[
             return False, len(_cache), _last_refresh
 
 
+def _normalise_payment_key(value: str) -> str:
+    key = _normalise(value)
+    # Common staff typos for "permanent".
+    key = re.sub(r"\bpemanent\b|\bpermenant\b|\bpermament\b|\bperment\b|\bpermant\b", "permanent", key)
+    key = re.sub(r"\bperm\b", "permanent", key)
+    return re.sub(r"\s+", " ", key).strip()
+
+
+def _permanent_key_from_payment(key: str) -> Optional[str]:
+    key = _normalise_payment_key(key)
+    key = re.sub(r"\b(?:fruit|gamepass|game pass|item)\b", " ", key)
+    key = _normalise(key)
+    if key.startswith("permanent "):
+        base = key[len("permanent "):].strip()
+        base = re.sub(r"\bfruit$", "", base).strip()
+        return f"permanent {base}" if base else None
+    return None
+
+
 async def lookup_payment(payment: str) -> Tuple[Optional[float], Optional[str], Optional[dt.datetime]]:
-    """Return (value, matched_name, checked_at) using exact/safe aliases."""
+    """Return (value, matched_name, checked_at) using safe aliases and permanent variants."""
     await refresh_blox_values()
     original = payment.strip()
-    key = _normalise(original)
+    key = _normalise_payment_key(original)
 
-    # Permanent item values are separate. Never use a regular value for a perm.
-    permanent_key = PAYMENT_ALIASES.get(key, key)
-    if permanent_key in _PERMANENT_VALUE_OVERRIDES:
-        return _PERMANENT_VALUE_OVERRIDES[permanent_key], permanent_key, _last_refresh
+    # Permanent fruit/payment must never silently fall back to the regular fruit value.
+    permanent_key = _permanent_key_from_payment(key)
+    if permanent_key:
+        value = _PERMANENT_VALUE_OVERRIDES.get(permanent_key)
+        if value is not None:
+            return value, permanent_key, _last_refresh
+        value = _cache.get(permanent_key)
+        if value is not None:
+            return value, _cache_names.get(permanent_key, permanent_key), _last_refresh
+        return None, None, _last_refresh
 
-    value = _cache.get(key)
+    alias = PAYMENT_ALIASES.get(key, key)
+    value = _cache.get(alias)
     if value is not None:
-        return value, _cache_names.get(key, original), _last_refresh
+        return value, _cache_names.get(alias, alias), _last_refresh
 
     # Common staff form: "Tiger Fruit" / "Dough Fruit" -> regular item.
     if key.endswith(" fruit"):
@@ -307,19 +388,13 @@ async def lookup_payment(payment: str) -> Tuple[Optional[float], Optional[str], 
         if value is not None:
             return value, _cache_names.get(base_key, base_key), _last_refresh
 
-    alias = PAYMENT_ALIASES.get(key)
-    if alias:
-        value = _cache.get(alias)
-        if value is not None and not alias.startswith("permanent "):
-            return value, _cache_names.get(alias, alias), _last_refresh
-
     # Common staff wording for gamepasses/limiteds.
     variants = {
         key.replace("x2 ", "2x "),
         key.replace(" 2x", " x2"),
         re.sub(r"\b(?:gamepass|game pass|limited|skin|cosmetic|item)\b", " ", key),
     }
-    variants = {_normalise(v) for v in variants if v and _normalise(v) != key}
+    variants = {_normalise_payment_key(v) for v in variants if v and _normalise_payment_key(v) != key}
     for variant in variants:
         value = _cache.get(variant)
         if value is not None:
@@ -330,7 +405,9 @@ async def lookup_payment(payment: str) -> Tuple[Optional[float], Optional[str], 
 
 def get_cached_value_names() -> list[str]:
     """Return all currently known calculable item names for the AI parser."""
-    return sorted(_cache_names.values(), key=str.casefold)
+    names = set(_cache_names.values())
+    names.update(_PERMANENT_VALUE_OVERRIDES.keys())
+    return sorted(names, key=str.casefold)
 
 
 def format_value(value: float) -> str:
