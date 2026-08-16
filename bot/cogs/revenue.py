@@ -20,7 +20,8 @@ from bot.ai_payment_parser import resolve_payment
 from bot.revenue_database import (
     add_revenue_entry, get_revenue_entries, get_revenue_summary,
     get_revenue_channel, set_revenue_channel, clear_revenue_channel,
-    get_multi_staff_entries, get_total_entries_count, clear_revenue_data
+    get_multi_staff_entries, get_total_entries_count, clear_revenue_data,
+    update_revenue_payment_value
 )
 
 # Expected format (FLEXIBLE):
@@ -45,7 +46,7 @@ CORRECT_FORMAT = """
 ```
 User : @username OR customer_name
 Service : service_name (e.g., trials, raids, leveling)
-Payment : payment/item (e.g., Leopard, Dough, Cashapp)
+Payment : payment/item (e.g., Tiger, Dough, 2x Money, Red Lightning, Cashapp)
 Paid to : @staff OR staff_name
 Done by : @helper OR helper_name (OPTIONAL)
 ```
@@ -56,6 +57,14 @@ User : @HINATA
 Service : trials/raids
 Payment : Leopard
 Paid to : @Roger
+
+```
+
+```
+User : @HINATA
+Service : raids
+Payment : 2x Money
+Paid to : @Roger
 ```
 
 ```
@@ -65,6 +74,8 @@ Payment : Cashapp
 Paid to : Roger
 Done by : Detrox
 ```
+
+**Calculable Blox Fruits examples:** `Tiger`, `Dough`, `Leopard`, `Kitsune`, `Dragon`, `2x Money`, `2x Mastery`, `Fast Boats`, `Red Lightning`, `Purple Lightning`, `Werewolf`
 """
 
 
@@ -343,7 +354,6 @@ async def _backfill_missing_payment_values(entries):
         entry["payment_value_name"] = name
         entry["payment_value_checked_at"] = checked_at
         try:
-            from bot.revenue_database import update_revenue_payment_value
             if await update_revenue_payment_value(entry.get("_id"), value, name, checked_at):
                 changed += 1
         except Exception as exc:
