@@ -75,6 +75,11 @@ async def on_ready():
         from bot.revenue_database import init_revenue_db
         await init_revenue_db()
         print("✅ Revenue database initialized")
+        try:
+            from bot.cogs.revenue import start_revenue_manager_weekly_loop
+            start_revenue_manager_weekly_loop()
+        except Exception as e:
+            print(f"⚠️ Revenue manager weekly DM loop not started: {e}")
     except Exception as e:
         print(f"⚠️ Revenue database init error: {e}")
         import traceback
@@ -279,6 +284,7 @@ VOUCH_PATTERN = re.compile(
 # without "?".
 NOPREFIX_CONFIRM_COMMANDS = {
     "warn", "clearwarnings", "mute", "unmute", "kick", "ban", "unban", "bon", "clearrevenue",
+    "makerevenuemanager",
 }
 
 async def run_message_as_command(message: discord.Message):
@@ -327,7 +333,7 @@ class NoPrefixModConfirmView(discord.ui.View):
 async def send_noprefix_confirmation(message: discord.Message, command_name: str):
     view = NoPrefixModConfirmView(message, message.author)
     await message.reply(
-        f"⚠️ You typed a **moderation command** (`{command_name}`) without the `?` prefix.\n"
+        f"⚠️ You typed a **staff command** (`{command_name}`) without the `?` prefix.\n"
         f"Run `{message.content}`?",
         view=view,
         mention_author=False,
