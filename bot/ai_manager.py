@@ -1,1004 +1,705 @@
-
-"""Premium per-server AI Manager for United Bunnies.
-
-Features:
-- Bot-owner-controlled premium enable/disable for any guild the bot is in.
-- Independent per-server AI knowledge: prices, rules, services, and bulk imports.
-- Hybrid commands (prefix + slash).
-- Optional per-server no-prefix AI mode.
-- Gemini used for server-local Q&A and safe server-action planning.
-- Server-changing AI actions require an explicit confirmation button.
-"""
 from __future__ import annotations
 
-import asyncio
-import datetime as dt
 import json
 import os
 import re
-from typing import Any, Dict, Optional
+import time
+from typing import Any
 
 import aiohttp
 import discord
 from discord.ext import commands
+import discord.app_commands as app_commands
 
-from bot.config import bot, style_embed, BOT_OWNER_IDS, is_staff
+from bot.config import bot, BOT_OWNER_IDS, is_staff, style_embed, BRAND_COLOR, UTC
 from bot.ai_manager_database import (
-    init_ai_manager_db,
-    get_server_config,
+    init as init_ai_db,
+    get_guild,
     set_ai_enabled,
     set_nonprefix_enabled,
     set_manager_role,
-    list_enabled_servers,
-    upsert_price,
-    list_prices,
-    remove_price,
-    clear_prices,
-    add_rule,
-    list_rules,
-    remove_rule,
-    clear_rules,
-    add_service,
-    list_services,
-    remove_service,
-    clear_services,
-    add_import,
-    clear_imports,
+    clear_category,
+    clear_price_sheets,
+    clear_rule_sheets,
     clear_all,
-    get_ai_context,
+    add_price,
+    remove_price,
+    add_price_sheet,
+    add_rule_sheet,
+    add_rule,
+    remove_rule,
+    add_service,
+    remove_service,
 )
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_AI_MANAGER_MODEL", os.getenv("GEMINI_PAYMENT_MODEL", "gemini-2.5-flash-lite")).strip()
-AI_ENABLED = os.getenv("AI_MANAGER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
+GEMINI_MODEL = os.getenv('GEMINI_AI_MANAGER_MODEL', os.getenv('GEMINI_PAYMENT_MODEL', 'gemini-2.5-flash-lite')).strip()
+AI_ENABLED = os.getenv('AI_MANAGER_ENABLED', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
 
-# In-memory import sessions. The actual imported data is persisted to MongoDB.
-_IMPORT_SESSIONS: Dict[tuple[int, int], Dict[str, Any]] = {}
-_MAX_IMPORT_MESSAGES = 30
-_MAX_IMPORT_CHARS = 75000
+_PENDING_ACTIONS: dict[int, dict[str, Any]] = {}
 
-
-def _owner(user: discord.abc.User) -> bool:
-    return user.id in BOT_OWNER_IDS
+_IMPORT_SESSIONS: dict[tuple[int, int], dict[str, Any]] = {}
+_IMPORT_TIMEOUT_SECONDS = 10 * 60
+_IMPORT_MAX_MESSAGES = 100
+_IMPORT_MAX_CHARS = 120_000
 
 
-async def _ensure_db() -> bool:
-    return await init_ai_manager_db()
+def _is_owner(user_id: int) -> bool:
+    return int(user_id) in BOT_OWNER_IDS
 
 
-async def _ai_allowed(guild: Optional[discord.Guild]) -> bool:
-    if guild is None:
+async def _ai_allowed(ctx: commands.Context) -> bool:
+    if not ctx.guild or not AI_ENABLED:
         return False
-    cfg = await get_server_config(guild.id)
-    return bool(cfg.get("ai_enabled"))
-
-
-async def _has_ai_access(ctx: commands.Context) -> bool:
-    if ctx.guild is None:
+    data = await get_guild(ctx.guild.id)
+    if not data.get('aiEnabled'):
         return False
-    cfg = await get_server_config(ctx.guild.id)
-    if not cfg.get("ai_enabled"):
-        await ctx.send(embed=style_embed(
-            "AI Manager Locked",
-            description="🔒 Premium AI Manager is not enabled for this server. A bot owner must activate it first.",
-            kind="error",
-        ), delete_after=10)
-        return False
-
-    if _owner(ctx.author):
+    member = ctx.author if isinstance(ctx.author, discord.Member) else None
+    if _is_owner(ctx.author.id):
         return True
-
-    if not isinstance(ctx.author, discord.Member):
-        return False
-
-    manager_role_id = cfg.get("manager_role_id")
-    if manager_role_id:
-        role = ctx.guild.get_role(int(manager_role_id))
-        if role and role in ctx.author.roles:
-            return True
-
-    if is_staff(ctx.author, need="mod"):
+    role_id = data.get('managerRoleId')
+    if member and role_id and any(r.id == int(role_id) for r in member.roles):
         return True
-
-    await ctx.send(embed=style_embed(
-        "AI Access Denied",
-        description="🔒 You do not have AI Manager access on this server.",
-        kind="error",
-    ), delete_after=10)
-    return False
+    return bool(member and is_staff(member, need='mod'))
 
 
-async def _find_guild(query: str) -> Optional[discord.Guild]:
-    query = (query or "").strip()
-    if not query:
-        return None
-    if query.isdigit():
-        gid = int(query)
-        return bot.get_guild(gid)
-    lowered = query.casefold()
-    exact = [g for g in bot.guilds if g.name.casefold() == lowered]
-    if exact:
-        return exact[0]
-    partial = [g for g in bot.guilds if lowered in g.name.casefold()]
-    return partial[0] if partial else None
+async def _management_allowed(ctx: commands.Context) -> bool:
+    if not await _ai_allowed(ctx):
+        return False
+    data = await get_guild(ctx.guild.id)
+    role_id = data.get('managerRoleId')
+    if _is_owner(ctx.author.id):
+        return True
+    member = ctx.author if isinstance(ctx.author, discord.Member) else None
+    if not member:
+        return False
+    if role_id and any(r.id == int(role_id) for r in member.roles):
+        return True
+    return is_staff(member, need='mod')
 
 
-def _guild_list_text() -> str:
-    guilds = sorted(bot.guilds, key=lambda g: g.name.casefold())
-    if not guilds:
-        return "No guilds are available."
-    lines = []
-    for g in guilds[:30]:
-        cfg = asyncio.run(get_server_config(g.id)) if False else None
-        lines.append(f"• **{g.name}** — `{g.id}`")
-    suffix = "" if len(guilds) <= 30 else f"\n…and {len(guilds) - 30} more."
-    return "\n".join(lines) + suffix
+def _disabled_message():
+    return style_embed('AI Manager Locked', description='🔒 AI Manager is not enabled for this server yet. Ask the bot owner to enable premium AI for this server.', kind='warn')
 
 
-class GuildSelectView(discord.ui.View):
-    def __init__(self, mode: str, author_id: int):
+class ServerSelectorView(discord.ui.View):
+    def __init__(self, owner_id: int, action: str, guilds: list[discord.Guild], page: int = 0):
         super().__init__(timeout=120)
-        self.mode = mode
-        self.author_id = author_id
-        self.page = 0
-        self._rebuild()
+        self.owner_id = owner_id
+        self.action = action
+        self.guilds = guilds
+        self.page = page
+        start = page * 25
+        current = guilds[start:start + 25]
+        options = [
+            discord.SelectOption(
+                label=g.name[:100],
+                value=str(g.id),
+                description=('AI: ' + ('ON' if getattr(g, '_ai_on', False) else 'OFF'))[:100],
+            )
+            for g in current
+        ]
+        if not options:
+            options = [discord.SelectOption(label='No servers available', value='0')]
+        self.add_item(ServerSelect(self, options))
+        if page > 0:
+            self.add_item(PageButton(self, 'prev'))
+        if (page + 1) * 25 < len(guilds):
+            self.add_item(PageButton(self, 'next'))
 
-    def _rebuild(self):
-        for child in list(self.children):
-            self.remove_item(child)
-        guilds = sorted(bot.guilds, key=lambda g: g.name.casefold())
-        start = self.page * 25
-        page_guilds = guilds[start:start + 25]
-        select = discord.ui.Select(
-            placeholder=f"Select a server ({self.page + 1}/{max(1, (len(guilds) + 24) // 25)})",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(
-                    label=g.name[:100],
-                    value=str(g.id),
-                    description=("Enabled" if self.mode in {"disable_ai", "disable_nonprefix"} else "Choose this server")[:100],
-                )
-                for g in page_guilds
-            ],
-        )
-        select.callback = self._select_callback
-        self.add_item(select)
-
-        if len(guilds) > 25:
-            prev_btn = discord.ui.Button(label="Previous", style=discord.ButtonStyle.secondary, disabled=self.page == 0)
-            next_btn = discord.ui.Button(label="Next", style=discord.ButtonStyle.secondary, disabled=start + 25 >= len(guilds))
-            prev_btn.callback = self._prev
-            next_btn.callback = self._next
-            self.add_item(prev_btn)
-            self.add_item(next_btn)
-
-        cancel = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.danger)
-        cancel.callback = self._cancel
-        self.add_item(cancel)
-
-    async def _select_callback(self, interaction: discord.Interaction):
-        if interaction.user.id != self.author_id:
-            await interaction.response.send_message("❌ Only the bot owner who opened this selector can use it.", ephemeral=True)
-            return
-        gid = int(interaction.data["values"][0])
-        guild = bot.get_guild(gid)
-        if not guild:
-            await interaction.response.edit_message(content="❌ That server is no longer available.", view=None)
-            self.stop()
-            return
-
-        if self.mode == "enable_ai":
-            ok = await set_ai_enabled(guild.id, True)
-            text = f"✅ Premium AI Manager is now **enabled** for **{guild.name}**." if ok else "❌ Could not save the AI setting."
-        elif self.mode == "disable_ai":
-            ok = await set_ai_enabled(guild.id, False)
-            text = f"🔒 Premium AI Manager is now **disabled** for **{guild.name}**." if ok else "❌ Could not save the AI setting."
-        elif self.mode == "enable_nonprefix":
-            ok = await set_nonprefix_enabled(guild.id, True)
-            text = f"✅ AI **non-prefix mode** is now enabled for **{guild.name}**." if ok else "❌ Could not save the setting."
-        else:
-            ok = await set_nonprefix_enabled(guild.id, False)
-            text = f"🔒 AI **non-prefix mode** is now disabled for **{guild.name}**." if ok else "❌ Could not save the setting."
-        await interaction.response.edit_message(
-            content=text + f"\n\nServer ID: `{guild.id}`",
-            view=None,
-        )
-        self.stop()
-
-    async def _prev(self, interaction: discord.Interaction):
-        if interaction.user.id != self.author_id:
-            await interaction.response.send_message("❌ Not your selector.", ephemeral=True)
-            return
-        self.page = max(0, self.page - 1)
-        self._rebuild()
-        await interaction.response.edit_message(view=self)
-
-    async def _next(self, interaction: discord.Interaction):
-        if interaction.user.id != self.author_id:
-            await interaction.response.send_message("❌ Not your selector.", ephemeral=True)
-            return
-        self.page += 1
-        self._rebuild()
-        await interaction.response.edit_message(view=self)
-
-    async def _cancel(self, interaction: discord.Interaction):
-        if interaction.user.id != self.author_id:
-            await interaction.response.send_message("❌ Not your selector.", ephemeral=True)
-            return
-        await interaction.response.edit_message(content="❌ Cancelled.", view=None)
-        self.stop()
-
-
-async def _owner_target_prompt(ctx: commands.Context, mode: str):
-    view = GuildSelectView(mode, ctx.author.id)
-    await ctx.send(embed=style_embed(
-        "Premium AI Server Selector",
-        description=f"Select one of the **{len(bot.guilds)}** servers currently using this bot.\n"
-                    "You do **not** need to be a member of the selected server.",
-        kind="mod",
-    ), view=view)
-
-
-class ConfirmView(discord.ui.View):
-    def __init__(self, author_id: int, action_coro):
-        super().__init__(timeout=60)
-        self.author_id = author_id
-        self.action_coro = action_coro
-
-    async def _check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.author_id:
-            await interaction.response.send_message("❌ Only the person who requested this action can confirm it.", ephemeral=True)
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message('❌ Only the bot owner who opened this menu can use it.', ephemeral=True)
             return False
         return True
 
-    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.success)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not await self._check(interaction):
-            return
-        for item in self.children:
-            item.disabled = True
-        await interaction.response.edit_message(content="⏳ **Executing...**", view=self)
-        try:
-            result = await self.action_coro()
-            await interaction.edit_original_response(content=result, view=None)
-        except Exception as exc:
-            await interaction.edit_original_response(content=f"❌ Action failed: `{exc}`", view=None)
-        self.stop()
 
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not await self._check(interaction):
-            return
-        for item in self.children:
-            item.disabled = True
-        await interaction.response.edit_message(content="❌ **Cancelled.** No changes were made.", view=self)
-        self.stop()
+class ServerSelect(discord.ui.Select):
+    def __init__(self, parent: ServerSelectorView, options):
+        self.parent_view = parent
+        super().__init__(placeholder='Select a server…', options=options, min_values=1, max_values=1)
 
-
-def _allowed_role_permissions() -> dict[str, str]:
-    return {
-        "view_channel": "View Channels",
-        "send_messages": "Send Messages",
-        "read_message_history": "Read Message History",
-        "embed_links": "Embed Links",
-        "attach_files": "Attach Files",
-        "manage_messages": "Manage Messages",
-        "moderate_members": "Timeout Members",
-        "kick_members": "Kick Members",
-        "ban_members": "Ban Members",
-    }
-
-
-def _parse_hex_color(value: str | None) -> Optional[discord.Colour]:
-    if not value:
-        return None
-    value = value.strip().lstrip("#")
-    if re.fullmatch(r"[0-9a-fA-F]{6}", value):
-        return discord.Colour(int(value, 16))
-    return None
-
-
-async def _execute_action(guild: discord.Guild, plan: Dict[str, Any]) -> str:
-    action = str(plan.get("action") or "").strip().lower()
-    me = guild.me or guild.get_member(bot.user.id)
-    if me is None:
-        return "❌ I could not resolve my own member record."
-    bot_top = me.top_role
-
-    if action == "create_role":
-        if not me.guild_permissions.manage_roles:
-            return "❌ I need **Manage Roles** to do that."
-        name = str(plan.get("name") or "").strip()
-        if not name:
-            return "❌ No role name was provided."
-        if discord.utils.get(guild.roles, name=name):
-            return f"❌ A role named **{name}** already exists."
-        perms = plan.get("permissions") or []
-        allowed = _allowed_role_permissions()
-        kwargs = {k: False for k in allowed}
-        for p in perms:
-            key = str(p).strip().lower()
-            if key in kwargs:
-                kwargs[key] = True
-        role = await guild.create_role(name=name, reason=f"AI Manager requested by {plan.get('requested_by')}")
-        try:
-            await role.edit(permissions=discord.Permissions(**kwargs))
-        except Exception:
-            await role.delete(reason="AI role creation rollback")
-            raise
-        color = _parse_hex_color(plan.get("color"))
-        if color:
-            await role.edit(colour=color)
-        return f"✅ Created role **{role.name}** with the approved safe permissions."
-
-    if action == "create_category":
-        if not me.guild_permissions.manage_channels:
-            return "❌ I need **Manage Channels** to do that."
-        name = str(plan.get("name") or "").strip()
-        if not name:
-            return "❌ No category name was provided."
-        existing = discord.utils.get(guild.categories, name=name)
-        if existing:
-            return f"❌ Category **{name}** already exists."
-        category = await guild.create_category(name=name, reason=f"AI Manager requested by {plan.get('requested_by')}")
-        return f"✅ Created category **{category.name}**."
-
-    if action == "create_text_channel":
-        if not me.guild_permissions.manage_channels:
-            return "❌ I need **Manage Channels** to do that."
-        name = str(plan.get("name") or "").strip().lower().replace(" ", "-")
-        if not name:
-            return "❌ No channel name was provided."
-        category_name = str(plan.get("category") or "").strip()
-        category = discord.utils.get(guild.categories, name=category_name) if category_name else None
-        channel = await guild.create_text_channel(
-            name=name,
-            category=category,
-            reason=f"AI Manager requested by {plan.get('requested_by')}",
-        )
-        return f"✅ Created {channel.mention}."
-
-    if action == "rename_role":
-        if not me.guild_permissions.manage_roles:
-            return "❌ I need **Manage Roles** to do that."
-        role_name = str(plan.get("role") or "").strip()
-        new_name = str(plan.get("new_name") or "").strip()
-        role = discord.utils.find(lambda r: r.name.casefold() == role_name.casefold(), guild.roles)
-        if not role or role.is_default() or role.managed:
-            return "❌ I could not find a normal editable role with that name."
-        if role >= bot_top:
-            return "❌ I cannot edit a role at or above my highest role."
-        if not new_name:
-            return "❌ No new role name was provided."
-        await role.edit(name=new_name, reason=f"AI Manager requested by {plan.get('requested_by')}")
-        return f"✅ Renamed the role to **{new_name}**."
-
-    if action in {"assign_role", "remove_role"}:
-        if not me.guild_permissions.manage_roles:
-            return "❌ I need **Manage Roles** to do that."
-        target_id = int(plan.get("user_id") or 0)
-        role_name = str(plan.get("role") or "").strip()
-        member = guild.get_member(target_id)
-        role = discord.utils.find(lambda r: r.name.casefold() == role_name.casefold(), guild.roles)
-        if not member or not role or role.is_default() or role.managed:
-            return "❌ I could not resolve the member or editable role."
-        if role >= bot_top:
-            return "❌ I cannot manage a role at or above my highest role."
-        if action == "assign_role":
-            await member.add_roles(role, reason=f"AI Manager requested by {plan.get('requested_by')}")
-            return f"✅ Added **{role.name}** to **{member.display_name}**."
-        await member.remove_roles(role, reason=f"AI Manager requested by {plan.get('requested_by')}")
-        return f"✅ Removed **{role.name}** from **{member.display_name}**."
-
-    return "❌ This AI action is not supported."
-
-
-async def _gemini_request(prompt: str) -> Optional[str]:
-    if not GEMINI_API_KEY or not AI_ENABLED:
-        return None
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.1},
-    }
-    try:
-        timeout = aiohttp.ClientTimeout(total=20)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, json=payload) as response:
-                body = await response.text()
-                if response.status != 200:
-                    print(f"⚠️ AI Manager HTTP {response.status}: {body[:300]}")
-                    return None
-                data = json.loads(body)
-        chunks = []
-        for candidate in data.get("candidates", []):
-            for part in candidate.get("content", {}).get("parts", []):
-                if isinstance(part.get("text"), str):
-                    chunks.append(part["text"])
-        return "\n".join(chunks).strip() or None
-    except Exception as exc:
-        print(f"⚠️ AI Manager request failed: {exc}")
-        return None
-
-
-async def _plan_action(guild: discord.Guild, question: str) -> Optional[Dict[str, Any]]:
-    mentioned_ids = [int(x) for x in re.findall(r"<@!?(\d+)>", question)]
-    prompt = f"""You are a Discord server-management action planner.
-Guild: {guild.name}
-
-User request:
-{question}
-
-Mentioned user IDs in request: {mentioned_ids}
-
-Return JSON only. Allowed actions:
-- none
-- create_role: {{name, permissions[], color?}}
-- create_category: {{name}}
-- create_text_channel: {{name, category?}}
-- rename_role: {{role, new_name}}
-- assign_role: {{user_id, role}}
-- remove_role: {{user_id, role}}
-
-Safe role permissions allowed ONLY:
-view_channel, send_messages, read_message_history, embed_links, attach_files,
-manage_messages, moderate_members, kick_members, ban_members.
-
-Rules:
-- Never output administrator, manage_guild, manage_roles, manage_channels, mention_everyone,
-  manage_webhooks, manage_permissions, or any other privileged permission.
-- Only return an action when the user clearly asks to change the Discord server.
-- For assign/remove_role, use a mentioned user ID when one is present.
-- For ordinary questions, return action=none.
-
-Return:
-{{"action":"none"}}
-or the matching action object."""
-    raw = await _gemini_request(prompt)
-    if not raw:
-        return None
-    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.I)
-    try:
-        plan = json.loads(raw)
-    except Exception:
-        return None
-    if not isinstance(plan, dict):
-        return None
-    return plan
-
-
-def _looks_like_action_request(question: str) -> bool:
-    q = question.casefold()
-    starters = (
-        "create role", "make role", "create a role", "make a role",
-        "create channel", "make channel", "create a channel", "make a channel",
-        "create category", "make category", "rename role", "rename the role",
-        "give role", "add role", "remove role", "take role",
-    )
-    return any(q.lstrip().startswith(x) for x in starters)
-
-
-async def _answer_ai(ctx: commands.Context, question: str):
-    if not question.strip():
-        await ctx.send(embed=style_embed(
-            "AI Manager",
-            description="Use `?ai <question>` or `/ai <question>`. Try `?aihelp` for examples.",
-            kind="info",
-        ))
-        return
-
-    action_plan = await _plan_action(ctx.guild, question) if _looks_like_action_request(question) else None
-    if action_plan and str(action_plan.get("action", "none")) != "none":
-        action = str(action_plan.get("action"))
-        preview = json.dumps(action_plan, indent=2)
-        action_plan["requested_by"] = ctx.author.id
-        async def execute():
-            return await _execute_action(ctx.guild, action_plan)
-        view = ConfirmView(ctx.author.id, execute)
-        await ctx.send(embed=style_embed(
-            "AI ACTION PREVIEW",
-            description=(
-                "AI wants to make a server change. **Nothing has changed yet.**\n\n"
-                f"```json\n{preview[:3500]}\n```\n"
-                "Review the action and confirm it below."
-            ),
-            kind="warn",
-        ), view=view)
-        return
-
-    context = await get_ai_context(ctx.guild.id)
-    prompt = f"""You are the private AI manager for one Discord server.
-
-Use ONLY the server data below for prices, rules, services and imported business information.
-Never invent a price, rule, refund policy, or service. If the information is not configured,
-say that clearly. You may perform normal arithmetic using configured prices.
-Keep answers concise and professional for moderators/staff.
-
-SERVER DATA:
-{context}
-
-STAFF QUESTION:
-{question}
-"""
-    answer = await _gemini_request(prompt)
-    if not answer:
-        reason = "GEMINI_API_KEY is missing" if not GEMINI_API_KEY else "Gemini is unavailable right now"
-        await ctx.send(embed=style_embed(
-            "AI Manager Unavailable",
-            description=f"⚠️ {reason}. The normal AI Manager configuration is still safe.",
-            kind="error",
-        ), delete_after=12)
-        return
-    if len(answer) > 3900:
-        answer = answer[:3890] + "…"
-    await ctx.send(embed=style_embed(
-        "AI Manager",
-        description=answer,
-        kind="info",
-    ))
-
-
-# ==========================================
-# BOT OWNER / PREMIUM CONTROL
-# ==========================================
-
-@bot.hybrid_command(name="provideai", help="Enable premium AI Manager for one of the bot's servers (bot owner only)")
-async def provide_ai(ctx: commands.Context, server: Optional[str] = None):
-    if not _owner(ctx.author):
-        raise commands.CheckFailure("🔒 Bot owner only.")
-    if not await _ensure_db():
-        await ctx.send(embed=style_embed("AI Manager Error", description="❌ MongoDB is unavailable.", kind="error"))
-        return
-    if not server:
-        await _owner_target_prompt(ctx, "enable_ai")
-        return
-    guild = await _find_guild(server)
-    if not guild:
-        await ctx.send(embed=style_embed("Server Not Found", description="❌ I could not find that server in the bot's guild list.", kind="error"))
-        return
-    await set_ai_enabled(guild.id, True)
-    await ctx.send(embed=style_embed(
-        "Premium AI Enabled",
-        description=f"✅ **{guild.name}** now has Premium AI Manager access.\nServer ID: `{guild.id}`",
-        kind="success",
-    ))
-
-
-@bot.hybrid_command(name="disableai", help="Disable premium AI Manager for a bot server (bot owner only)")
-async def disable_ai(ctx: commands.Context, server: Optional[str] = None):
-    if not _owner(ctx.author):
-        raise commands.CheckFailure("🔒 Bot owner only.")
-    if not server:
-        await _owner_target_prompt(ctx, "disable_ai")
-        return
-    guild = await _find_guild(server)
-    if not guild:
-        await ctx.send(embed=style_embed("Server Not Found", description="❌ Server not found.", kind="error"))
-        return
-    await set_ai_enabled(guild.id, False)
-    await ctx.send(embed=style_embed("Premium AI Disabled", description=f"🔒 AI Manager disabled for **{guild.name}**.", kind="warn"))
-
-
-@bot.hybrid_command(name="providenonprefix", help="Enable premium AI no-prefix commands for a bot server (bot owner only)")
-async def provide_nonprefix(ctx: commands.Context, server: Optional[str] = None):
-    if not _owner(ctx.author):
-        raise commands.CheckFailure("🔒 Bot owner only.")
-    if not server:
-        await _owner_target_prompt(ctx, "enable_nonprefix")
-        return
-    guild = await _find_guild(server)
-    if not guild:
-        await ctx.send(embed=style_embed("Server Not Found", description="❌ Server not found.", kind="error"))
-        return
-    await set_nonprefix_enabled(guild.id, True)
-    await ctx.send(embed=style_embed(
-        "AI Non-Prefix Enabled",
-        description=f"✅ AI no-prefix commands are enabled for **{guild.name}**.\n\n"
-                    "Normal no-prefix permissions still apply to non-owner staff.",
-        kind="success",
-    ))
-
-
-@bot.hybrid_command(name="disablenonprefix", help="Disable premium AI no-prefix commands (bot owner only)")
-async def disable_nonprefix(ctx: commands.Context, server: Optional[str] = None):
-    if not _owner(ctx.author):
-        raise commands.CheckFailure("🔒 Bot owner only.")
-    if not server:
-        await _owner_target_prompt(ctx, "disable_nonprefix")
-        return
-    guild = await _find_guild(server)
-    if not guild:
-        await ctx.send(embed=style_embed("Server Not Found", description="❌ Server not found.", kind="error"))
-        return
-    await set_nonprefix_enabled(guild.id, False)
-    await ctx.send(embed=style_embed("AI Non-Prefix Disabled", description=f"🔒 AI no-prefix disabled for **{guild.name}**.", kind="warn"))
-
-
-@bot.hybrid_command(name="aistatus", help="Show premium AI status for this server or a bot server (bot owner only)")
-async def ai_status(ctx: commands.Context, server: Optional[str] = None):
-    if not _owner(ctx.author):
-        raise commands.CheckFailure("🔒 Bot owner only.")
-    if server:
-        guilds = [await _find_guild(server)]
-    else:
-        guilds = sorted(bot.guilds, key=lambda g: g.name.casefold())[:30]
-    lines = []
-    for guild in guilds:
+    async def callback(self, interaction: discord.Interaction):
+        gid = int(self.values[0])
+        guild = discord.utils.get(self.parent_view.guilds, id=gid)
         if not guild:
-            continue
-        cfg = await get_server_config(guild.id)
-        lines.append(
-            f"• **{guild.name}** — AI: {'✅' if cfg.get('ai_enabled') else '❌'} | "
-            f"Non-prefix: {'✅' if cfg.get('nonprefix_enabled') else '❌'} | ID: `{guild.id}`"
-        )
-    if not lines:
-        lines = ["• No matching servers."]
-    await ctx.send(embed=style_embed("Premium AI Status", description="\n".join(lines), kind="info"))
-
-
-@bot.hybrid_command(name="ailist", help="List servers with Premium AI enabled (bot owner only)")
-async def ai_list(ctx: commands.Context):
-    if not _owner(ctx.author):
-        raise commands.CheckFailure("🔒 Bot owner only.")
-    enabled = await list_enabled_servers()
-    if not enabled:
-        text = "No servers currently have Premium AI enabled."
-    else:
-        text = "\n".join(
-            f"• **{bot.get_guild(int(x['guild_id'])).name if bot.get_guild(int(x['guild_id'])) else x['guild_id']}** — `{x['guild_id']}`"
-            for x in enabled
-        )
-    await ctx.send(embed=style_embed("Premium AI Servers", description=text[:3900], kind="info"))
-
-
-# ==========================================
-# SERVER AI MANAGER
-# ==========================================
-
-@bot.hybrid_command(name="aihelp", help="Show the Premium AI Manager guide")
-async def ai_help(ctx: commands.Context):
-    if not await _has_ai_access(ctx):
-        return
-    text = """**AI**
-`?ai <question>` / `/ai <question>`
-Ask about this server's configured prices, rules, services, quotes, or summaries.
-
-**BULK IMPORT**
-`?aiimportprice <title>`
-Starts a multi-message price import. Paste as many chunks as needed, then send `done`.
-`?aiimportrules <title>`
-Same process for rules.
-
-**PRICES**
-`?aiprice set <service> = <price>`
-`?aiprice list`
-`?aiprice remove <service>`
-`?aiprice clear`
-
-**RULES**
-`?airule add <rule>`
-`?airule list`
-`?airule remove <number>`
-`?airule clear`
-
-**SERVICES**
-`?aiservice add <service> [description]`
-`?aiservice list`
-`?aiservice remove <service>`
-`?aiservice clear`
-
-**CONFIG**
-`?aiconfig`
-`?aiconfig manager @role`
-`?aiconfig resetmanager`
-
-**ALL DATA**
-`?aiclear` — clears this server's AI prices, rules, services and imports after confirmation.
-
-**SERVER ACTIONS**
-`?ai create a role called Trial Staff with Manage Messages and Timeout Members`
-`?ai create a private staff channel called staff-chat`
-`?ai give @user Trial Staff`
-`?ai remove Trial Staff from @user`
-
-AI can plan server changes, but it never applies them without a confirmation button. Dangerous administrator-level permissions are not allowed.
-
-**IMPORTANT**
-• Premium AI is enabled by the bot owner per server.
-• This server's data is isolated from every other server.
-• AI does not invent configured prices or rules.
-• AI no-prefix works only when the bot owner has enabled it for this server, plus normal no-prefix user permissions.
-• All management/destructive actions are permission-checked.
-"""
-    await ctx.send(embed=style_embed("AI Manager Help", description=text, kind="info"))
-
-
-@bot.hybrid_command(name="ai", help="Ask this server's Premium AI Manager a question")
-async def ai_command(ctx: commands.Context, *, question: Optional[str] = None):
-    if not await _has_ai_access(ctx):
-        return
-    if ctx.guild is None:
-        return
-    await _answer_ai(ctx, question or "")
-
-
-@bot.hybrid_command(name="aiconfig", help="Show or configure AI Manager access for this server")
-async def ai_config(ctx: commands.Context, action: str = "show", role: Optional[discord.Role] = None):
-    if not await _has_ai_access(ctx):
-        return
-    action = action.casefold().strip()
-    if action in {"manager", "setmanager"}:
-        if not is_staff(ctx.author, need="admin") and not _owner(ctx.author):
-            await ctx.send(embed=style_embed("Permission Denied", description="❌ Manage Server/Admin access is required to change the AI Manager role.", kind="error"), delete_after=10)
+            await interaction.response.send_message('❌ Server not found in the bot guild list.', ephemeral=True)
             return
-        if role is None:
-            await ctx.send(embed=style_embed("AI Manager Role", description="Usage: `?aiconfig manager @role`", kind="info"), delete_after=10)
-            return
-        await set_manager_role(ctx.guild.id, role.id)
-        await ctx.send(embed=style_embed("AI Manager Role Set", description=f"✅ AI Manager access role is now {role.mention}.", kind="success"))
-        return
-    if action in {"resetmanager", "clearmanager"}:
-        if not is_staff(ctx.author, need="admin") and not _owner(ctx.author):
-            await ctx.send(embed=style_embed("Permission Denied", description="❌ Manage Server/Admin access is required.", kind="error"), delete_after=10)
-            return
-        await set_manager_role(ctx.guild.id, None)
-        await ctx.send(embed=style_embed("AI Manager Role Reset", description="✅ AI Manager role restriction cleared. Staff permissions can use AI again.", kind="success"))
-        return
-    cfg = await get_server_config(ctx.guild.id)
-    role_text = f"<@&{cfg['manager_role_id']}>" if cfg.get("manager_role_id") else "Not set (staff permissions)"
-    text = (
-        f"**Premium AI:** {'✅ Enabled' if cfg.get('ai_enabled') else '❌ Disabled'}\n"
-        f"**AI Non-Prefix:** {'✅ Enabled' if cfg.get('nonprefix_enabled') else '❌ Disabled'}\n"
-        f"**AI Manager Role:** {role_text}"
-    )
-    await ctx.send(embed=style_embed("AI Manager Configuration", description=text, kind="info"))
-
-
-def _split_action(action: str, data: str) -> tuple[str, str]:
-    return action.casefold().strip(), data.strip()
-
-
-@bot.hybrid_command(name="aiprice", help="Manage this server's AI prices")
-async def ai_price(ctx: commands.Context, action: str = "list", *, data: str = ""):
-    if not await _has_ai_access(ctx):
-        return
-    action, data = _split_action(action, data)
-    if action == "set":
-        if not data:
-            await ctx.send("Usage: `?aiprice set <service> = <price>`", delete_after=10)
-            return
-        if "=" in data:
-            service, price = [x.strip() for x in data.split("=", 1)]
-        else:
-            parts = data.rsplit(None, 1)
-            if len(parts) != 2:
-                await ctx.send("Usage: `?aiprice set <service> = <price>`", delete_after=10)
+        data = await get_guild(gid)
+        if self.parent_view.action == 'ai':
+            data = await set_ai_enabled(gid, True)
+            text = f'✅ **AI Manager enabled** for **{guild.name}**.\nAI commands are now available to that server’s staff/AI Manager role.'
+        elif self.parent_view.action == 'ai_disable':
+            data = await set_ai_enabled(gid, False)
+            await set_nonprefix_enabled(gid, False)
+            text = f'🔒 **AI Manager disabled** for **{guild.name}**. AI non-prefix was disabled too.'
+        elif self.parent_view.action == 'nonprefix':
+            if not data.get('aiEnabled'):
+                await interaction.response.send_message('❌ Enable AI Manager for that server first.', ephemeral=True)
                 return
-            service, price = parts
-        if not await upsert_price(ctx.guild.id, service, price):
-            await ctx.send("❌ Could not save that price.", delete_after=10)
-            return
-        await ctx.send(embed=style_embed("AI Price Saved", description=f"✅ **{service}** → `{price}`", kind="success"), delete_after=10)
-        return
-    if action == "remove":
-        ok = await remove_price(ctx.guild.id, data)
-        await ctx.send(embed=style_embed("AI Price Removed", description=("✅ Removed." if ok else "❌ Price not found."), kind="info"), delete_after=10)
-        return
-    if action == "clear":
-        count = len(await list_prices(ctx.guild.id))
-        async def do_clear():
-            removed = await clear_prices(ctx.guild.id)
-            return f"✅ Cleared **{removed}** AI price entries for **{ctx.guild.name}**."
-        view = ConfirmView(ctx.author.id, do_clear)
-        await ctx.send(embed=style_embed(
-            "Clear AI Prices",
-            description=f"⚠️ This will remove **{count}** configured prices from this server only.",
-            kind="warn",
-        ), view=view)
-        return
-    prices = await list_prices(ctx.guild.id)
-    lines = [f"• **{p['service']}** → `{p['price']}`" for p in prices]
-    await ctx.send(embed=style_embed("AI Prices", description="\n".join(lines)[:3900] if lines else "No individual prices configured. Use `?aiimportprice` for bulk data.", kind="info"))
-
-
-@bot.hybrid_command(name="airule", help="Manage this server's AI rules")
-async def ai_rule(ctx: commands.Context, action: str = "list", *, data: str = ""):
-    if not await _has_ai_access(ctx):
-        return
-    action = action.casefold().strip()
-    if action == "add":
-        if not data:
-            await ctx.send("Usage: `?airule add <rule>`", delete_after=10)
-            return
-        ok = await add_rule(ctx.guild.id, data)
-        await ctx.send(embed=style_embed("AI Rule Added", description=("✅ Rule saved." if ok else "❌ Could not save the rule."), kind="success" if ok else "error"), delete_after=10)
-        return
-    if action == "remove":
-        try:
-            index = int(data)
-        except Exception:
-            index = 0
-        ok = await remove_rule(ctx.guild.id, index)
-        await ctx.send(embed=style_embed("AI Rule Removed", description=("✅ Removed." if ok else "❌ Rule number not found."), kind="info"), delete_after=10)
-        return
-    if action == "clear":
-        count = len(await list_rules(ctx.guild.id))
-        async def do_clear():
-            removed = await clear_rules(ctx.guild.id)
-            return f"✅ Cleared **{removed}** AI rules for **{ctx.guild.name}**."
-        await ctx.send(embed=style_embed(
-            "Clear AI Rules",
-            description=f"⚠️ This removes **{count}** rules from this server only.",
-            kind="warn",
-        ), view=ConfirmView(ctx.author.id, do_clear))
-        return
-    rules = await list_rules(ctx.guild.id)
-    if not rules:
-        await ctx.send(embed=style_embed("AI Rules", description="No individual rules configured. Use `?aiimportrules` for bulk data.", kind="info"))
-        return
-    lines = [f"**{i}.** [{r.get('category', 'General')}] {r.get('rule')}" for i, r in enumerate(rules, 1)]
-    await ctx.send(embed=style_embed("AI Rules", description="\n".join(lines)[:3900], kind="info"))
-
-
-@bot.hybrid_command(name="aiservice", help="Manage this server's AI service catalog")
-async def ai_service(ctx: commands.Context, action: str = "list", *, data: str = ""):
-    if not await _has_ai_access(ctx):
-        return
-    action = action.casefold().strip()
-    if action == "add":
-        if not data:
-            await ctx.send("Usage: `?aiservice add <service> | <description>`", delete_after=10)
-            return
-        if "|" in data:
-            service, desc = [x.strip() for x in data.split("|", 1)]
+            await set_nonprefix_enabled(gid, True)
+            text = f'✅ **AI non-prefix enabled** for **{guild.name}**.'
         else:
-            service, desc = data, ""
-        ok = await add_service(ctx.guild.id, service, desc)
-        await ctx.send(embed=style_embed("AI Service Saved", description=("✅ Service saved." if ok else "❌ Could not save the service."), kind="success" if ok else "error"), delete_after=10)
-        return
-    if action == "remove":
-        ok = await remove_service(ctx.guild.id, data)
-        await ctx.send(embed=style_embed("AI Service Removed", description=("✅ Removed." if ok else "❌ Service not found."), kind="info"), delete_after=10)
-        return
-    if action == "clear":
-        count = len(await list_services(ctx.guild.id))
-        async def do_clear():
-            removed = await clear_services(ctx.guild.id)
-            return f"✅ Cleared **{removed}** AI services for **{ctx.guild.name}**."
-        await ctx.send(embed=style_embed(
-            "Clear AI Services",
-            description=f"⚠️ This removes **{count}** services from this server only.",
-            kind="warn",
-        ), view=ConfirmView(ctx.author.id, do_clear))
-        return
-    services = await list_services(ctx.guild.id)
-    lines = [f"• **{x['service']}**" + (f" — {x['description']}" if x.get('description') else "") for x in services]
-    await ctx.send(embed=style_embed("AI Services", description="\n".join(lines)[:3900] if lines else "No services configured.", kind="info"))
+            await set_nonprefix_enabled(gid, False)
+            text = f'🔒 **AI non-prefix disabled** for **{guild.name}**.'
+        embed = style_embed('Premium AI Manager', description=text, kind='success')
+        await interaction.response.edit_message(embed=embed, view=None)
 
 
-async def _start_import(ctx: commands.Context, kind: str, title: str):
-    if not await _has_ai_access(ctx):
-        return
-    key = (ctx.guild.id, ctx.author.id)
-    _IMPORT_SESSIONS[key] = {
-        "guild_id": ctx.guild.id,
-        "user_id": ctx.author.id,
-        "channel_id": ctx.channel.id,
+class PageButton(discord.ui.Button):
+    def __init__(self, parent: ServerSelectorView, direction: str):
+        super().__init__(label='Previous' if direction == 'prev' else 'Next', style=discord.ButtonStyle.secondary)
+        self.parent_view = parent
+        self.direction = direction
+
+    async def callback(self, interaction: discord.Interaction):
+        delta = -1 if self.direction == 'prev' else 1
+        page = self.parent_view.page + delta
+        await interaction.response.edit_message(view=ServerSelectorView(self.parent_view.owner_id, self.parent_view.action, self.parent_view.guilds, page))
+
+
+class AIActionView(discord.ui.View):
+    def __init__(self, author_id: int, action_id: int):
+        super().__init__(timeout=60)
+        self.author_id = author_id
+        self.action_id = action_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message('❌ Only the person who requested the action can confirm it.', ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label='Confirm', style=discord.ButtonStyle.success, emoji='✅')
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        action = _PENDING_ACTIONS.pop(self.action_id, None)
+        if not action:
+            await interaction.response.edit_message(content='⌛ This action expired.', view=None)
+            return
+        for child in self.children:
+            child.disabled = True
+        guild = interaction.guild
+        try:
+            if action['type'] == 'create_role':
+                perms = discord.Permissions.none()
+                for p in action.get('permissions', []):
+                    if hasattr(perms, p) and p not in {'administrator', 'manage_guild'}:
+                        setattr(perms, p, True)
+                role = await guild.create_role(name=action['name'][:100], permissions=perms, reason='AI Manager confirmed action')
+                result = f'✅ Created role {role.mention}.'
+            elif action['type'] == 'create_channel':
+                channel = await guild.create_text_channel(name=action['name'][:90], reason='AI Manager confirmed action')
+                result = f'✅ Created channel {channel.mention}.'
+            elif action['type'] == 'add_role':
+                member = guild.get_member(int(action['member_id']))
+                role = discord.utils.get(guild.roles, name=action['role_name'])
+                if not member or not role:
+                    raise ValueError('Member or role was not found.')
+                await member.add_roles(role, reason='AI Manager confirmed action')
+                result = f'✅ Added {role.mention} to {member.mention}.'
+            else:
+                raise ValueError('Unsupported AI action.')
+            await interaction.response.edit_message(content=result, view=None)
+        except Exception as exc:
+            await interaction.response.edit_message(content=f'❌ Could not complete the action: `{exc}`', view=None)
+
+    @discord.ui.button(label='Cancel', style=discord.ButtonStyle.secondary, emoji='✖️')
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        _PENDING_ACTIONS.pop(self.action_id, None)
+        await interaction.response.edit_message(content='❌ Action cancelled.', view=None)
+
+
+def _session_key(guild_id: int, user_id: int) -> tuple[int, int]:
+    return (int(guild_id), int(user_id))
+
+
+def _start_import_session(guild_id: int, user_id: int, kind: str, title: str = "") -> dict[str, Any]:
+    session = {
+        "guild_id": int(guild_id),
+        "user_id": int(user_id),
         "kind": kind,
-        "title": title.strip() or ("Prices" if kind == "price" else "Rules"),
-        "chunks": [],
-        "chars": 0,
-        "started_at": dt.datetime.now(dt.timezone.utc),
+        "title": title.strip() or ("Imported Prices" if kind == "price" else "Imported Rules"),
+        "parts": [],
+        "started_at": time.monotonic(),
     }
-    await ctx.send(embed=style_embed(
-        f"AI {kind.title()} Import Started",
-        description=(
-            f"**Title:** {title.strip() or ('Prices' if kind == 'price' else 'Rules')}\n\n"
-            "Send the data in as many messages as needed. I will collect up to "
-            f"**{_MAX_IMPORT_MESSAGES} messages / {_MAX_IMPORT_CHARS:,} characters**.\n\n"
-            "When finished, send **`done`** in this same channel.\n"
-            "The data is stored only for this server."
-        ),
-        kind="info",
-    ))
+    _IMPORT_SESSIONS[_session_key(guild_id, user_id)] = session
+    return session
 
 
-@bot.hybrid_command(name="aiimportprice", help="Bulk-import server-specific AI pricing data")
-async def ai_import_price(ctx: commands.Context, *, title: str = "Imported Prices"):
-    await _start_import(ctx, "price", title)
+def _cancel_import_session(guild_id: int, user_id: int) -> None:
+    _IMPORT_SESSIONS.pop(_session_key(guild_id, user_id), None)
 
 
-@bot.hybrid_command(name="aiimportrules", help="Bulk-import server-specific AI rules")
-async def ai_import_rules(ctx: commands.Context, *, title: str = "Imported Rules"):
-    await _start_import(ctx, "rule", title)
+def _get_import_session(guild_id: int, user_id: int) -> dict[str, Any] | None:
+    session = _IMPORT_SESSIONS.get(_session_key(guild_id, user_id))
+    if not session:
+        return None
+    if time.monotonic() - float(session.get("started_at", 0)) > _IMPORT_TIMEOUT_SECONDS:
+        _cancel_import_session(guild_id, user_id)
+        return None
+    return session
 
 
-@bot.hybrid_command(name="aiclear", help="Clear all Premium AI data for this server")
-async def ai_clear(ctx: commands.Context):
-    if not await _has_ai_access(ctx):
+async def _finish_import_session(ctx: commands.Context, session: dict[str, Any]) -> None:
+    combined = "\n".join(session.get("parts") or []).strip()
+    if not combined:
+        _cancel_import_session(ctx.guild.id, ctx.author.id)
+        await ctx.send(embed=style_embed("AI Import Cancelled", description="❌ No text was collected.", kind="warn"), delete_after=8)
         return
-    cfg = await get_server_config(ctx.guild.id)
-    if not (_owner(ctx.author) or is_staff(ctx.author, need="admin")):
-        await ctx.send(embed=style_embed("Permission Denied", description="❌ Manage Server/Admin access is required to clear all AI data.", kind="error"), delete_after=10)
-        return
-    async def do_clear():
-        removed = await clear_all(ctx.guild.id)
-        return (
-            f"✅ Cleared this server's AI Manager data.\n"
-            f"Prices: `{removed['prices']}` • Rules: `{removed['rules']}` • "
-            f"Services: `{removed['services']}` • Imports: `{removed['imports']}`"
-        )
-    await ctx.send(embed=style_embed(
-        "Clear All AI Data",
-        description="⚠️ This deletes **all AI Manager prices, rules, services and imported documents for this server only**.",
-        kind="warn",
-    ), view=ConfirmView(ctx.author.id, do_clear))
+    title = session.get("title") or ("Imported Prices" if session.get("kind") == "price" else "Imported Rules")
+    if session.get("kind") == "price":
+        await add_price_sheet(ctx.guild.id, title, combined)
+        heading = "AI Price Data Imported"
+        desc = f"✅ Imported **{len(session['parts'])} message(s)** / **{len(combined):,} characters** as **{title}**.\n\nThe complete pricing text is stored for this server and used by `?ai` for price questions."
+    else:
+        await add_rule_sheet(ctx.guild.id, title, combined)
+        heading = "AI Rules Imported"
+        desc = f"✅ Imported **{len(session['parts'])} message(s)** / **{len(combined):,} characters** as **{title}**.\n\nThe complete rules/policy text is stored for this server and used by `?ai` for rule questions."
+    _cancel_import_session(ctx.guild.id, ctx.author.id)
+    await ctx.send(embed=style_embed(heading, description=desc, kind="success"))
 
 
-async def handle_import_message(message: discord.Message) -> bool:
-    """Consume messages belonging to an active bulk AI import session."""
+async def handle_ai_import_message(message: discord.Message) -> bool:
+    """Consume messages while a staff member is in an AI price/rules import session."""
     if not message.guild or message.author.bot:
         return False
-    key = (message.guild.id, message.author.id)
-    session = _IMPORT_SESSIONS.get(key)
+    session = _get_import_session(message.guild.id, message.author.id)
     if not session:
         return False
-    if message.channel.id != session["channel_id"]:
-        return False
-
     content = message.content.strip()
-    if not content:
+    if content.casefold() in {"cancel", "abort", "stop"}:
+        _cancel_import_session(message.guild.id, message.author.id)
+        await message.reply("❌ AI import cancelled. Nothing was saved.", mention_author=False, delete_after=8)
         return True
-
-    if content.casefold() == "cancel":
-        _IMPORT_SESSIONS.pop(key, None)
-        await message.channel.send("❌ AI import cancelled.", delete_after=8)
+    if content.casefold() in {"done", "finish", "finished"}:
+        ctx = await bot.get_context(message)
+        await _finish_import_session(ctx, session)
         return True
-
-    if content.casefold() == "done":
-        combined = "\n\n".join(session["chunks"]).strip()
-        if not combined:
-            await message.channel.send("❌ No data was collected. Import cancelled.", delete_after=8)
-            _IMPORT_SESSIONS.pop(key, None)
-            return True
-        ok = await add_import(
-            session["guild_id"],
-            session["kind"],
-            session["title"],
-            combined,
-        )
-        _IMPORT_SESSIONS.pop(key, None)
-        await message.channel.send(
-            embed=style_embed(
-                "AI Import Complete",
-                description=(
-                    f"✅ Stored **{len(combined):,} characters** as **{session['title']}**.\n"
-                    f"Type: `{session['kind']}`\n"
-                    f"Server: **{message.guild.name}**\n\n"
-                    "The AI will now use this server-local data when answering `?ai` questions."
-                ),
-                kind="success" if ok else "error",
-            ),
-            delete_after=20,
-        )
+    if len(session["parts"]) >= _IMPORT_MAX_MESSAGES:
+        _cancel_import_session(message.guild.id, message.author.id)
+        await message.reply(f"❌ Import stopped after {_IMPORT_MAX_MESSAGES} messages. Nothing was saved.", mention_author=False, delete_after=10)
         return True
-
-    if len(session["chunks"]) >= _MAX_IMPORT_MESSAGES or session["chars"] + len(content) > _MAX_IMPORT_CHARS:
-        await message.channel.send(
-            "⚠️ Import size limit reached. Send `done` to save the collected data or `cancel` to discard it.",
-            delete_after=10,
-        )
+    current = sum(len(part) for part in session["parts"])
+    if current + len(content) > _IMPORT_MAX_CHARS:
+        _cancel_import_session(message.guild.id, message.author.id)
+        await message.reply(f"❌ Import is too large. Maximum is {_IMPORT_MAX_CHARS:,} characters. Nothing was saved.", mention_author=False, delete_after=10)
         return True
-
-    session["chunks"].append(content)
-    session["chars"] += len(content)
-    await message.channel.send(
-        f"📥 Import chunk received — `{len(session['chunks'])}/{_MAX_IMPORT_MESSAGES}` messages, `{session['chars']:,}` characters.",
-        delete_after=4,
+    session["parts"].append(content)
+    await message.reply(
+        f"✅ Added **part {len(session['parts'])}**. Total **{current + len(content):,} chars**. Send more or type `done`.",
+        mention_author=False,
+        delete_after=5,
     )
     return True
 
 
-async def initialize_ai_manager():
-    await init_ai_manager_db()
+def _relevant_sheet_text(text: str, query: str, max_chars: int = 14000) -> str:
+    raw = str(text or "").strip()
+    if len(raw) <= max_chars:
+        return raw
+    tokens = [t for t in re.findall(r"[a-z0-9+]+", query.casefold()) if len(t) >= 3]
+    blocks = re.split(r"\n\s*\n", raw)
+    scored = []
+    for idx, block in enumerate(blocks):
+        low = block.casefold()
+        score = sum(low.count(tok) for tok in tokens)
+        if score:
+            scored.append((score, idx, block))
+    if not scored:
+        return raw[:max_chars] + "\n…[import truncated for this query]"
+    scored.sort(key=lambda row: (-row[0], row[1]))
+    out = []
+    size = 0
+    for _, _, block in scored:
+        if size + len(block) + 2 > max_chars:
+            break
+        out.append(block)
+        size += len(block) + 2
+    return "\n\n".join(out) or raw[:max_chars]
+
+
+async def _gemini(text: str, ctx: commands.Context, data: dict[str, Any]) -> dict[str, Any] | None:
+    if not GEMINI_API_KEY or not AI_ENABLED:
+        return None
+    knowledge = {
+        'prices': data.get('prices') or [],
+        'rules': data.get('rules') or [],
+        'services': data.get('services') or [],
+        'priceSheets': [
+            {'title': s.get('title', 'Imported Prices'), 'text': _relevant_sheet_text(s.get('text', ''), text)}
+            for s in (data.get('priceSheets') or [])
+        ],
+        'ruleSheets': [
+            {'title': s.get('title', 'Imported Rules'), 'text': _relevant_sheet_text(s.get('text', ''), text)}
+            for s in (data.get('ruleSheets') or [])
+        ],
+    }
+    prompt = f"""You are the private AI manager for the Discord server {ctx.guild.name!r}.
+Use ONLY the server knowledge below for prices, services, rules, and policies. Never invent a price or rule. If the answer is not in the knowledge, say it is not configured.
+
+SERVER KNOWLEDGE:
+{json.dumps(knowledge, ensure_ascii=False)}
+
+USER REQUEST:
+{text}
+
+Return JSON only with this shape:
+{{"mode":"answer|action","answer":"...","action":{{"type":"create_role|create_channel|add_role|null","name":"","permissions":[],"role_name":"","member_id":""}}}}
+
+Safe action rules:
+- create_role permissions may include manage_messages, moderate_members, kick_members, ban_members, manage_channels, read_message_history, send_messages, view_channel, mute_members, deafen_members.
+- NEVER request administrator or manage_guild.
+- Only create a role/channel/add an existing role if the user clearly asks.
+- For questions, use mode=answer and action=null.
+"""
+    url = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
+    payload = {'contents': [{'parts': [{'text': prompt}]}], 'generationConfig': {'temperature': 0, 'responseMimeType': 'application/json'}}
+    headers = {'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY}
+    try:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, json=payload, headers=headers) as response:
+                if response.status != 200:
+                    body = await response.text()
+                    print(f'❌ Gemini API error {response.status}: {body[:2000]}')
+                    return None
+                raw = await response.json()
+        text_out = ''.join(part.get('text', '') for c in raw.get('candidates', []) for part in c.get('content', {}).get('parts', []) if isinstance(part.get('text'), str)).strip()
+        text_out = re.sub(r'^```(?:json)?\s*|\s*```$', '', text_out, flags=re.I)
+        result = json.loads(text_out)
+        return result if isinstance(result, dict) else None
+    except Exception as exc:
+        print(f'⚠️ AI Manager request failed: {exc}')
+        return None
+
+
+@bot.hybrid_command(name='provideai', help='Bot owner: enable premium AI Manager for a server, using a server selector if no server is given.')
+@app_commands.describe(server='Server name or ID; leave empty to open the full bot server selector.')
+async def provide_ai(ctx: commands.Context, *, server: str = ''):
+    if not _is_owner(ctx.author.id):
+        await ctx.send(embed=style_embed('Unauthorized', description='Only bot owners can provide premium AI Manager access.', kind='error'))
+        return
+    guilds = list(bot.guilds)
+    if not server.strip():
+        embed = style_embed('Premium AI Manager', description=f'Select a server below. The bot is currently in **{len(guilds)}** servers. You do not need to personally be a member of the selected server.', kind='info')
+        await ctx.send(embed=embed, view=ServerSelectorView(ctx.author.id, 'ai', guilds))
+        return
+    target = _find_guild(server)
+    if not target:
+        await ctx.send(embed=style_embed('Server Not Found', description='Use the server name/ID of a guild the bot is currently in, or omit the argument to use the selector.', kind='error'))
+        return
+    await set_ai_enabled(target.id, True)
+    await ctx.send(embed=style_embed('AI Manager Enabled', description=f'✅ Premium AI Manager is enabled for **{target.name}**.', kind='success'))
+
+
+def _find_guild(query: str):
+    q = query.strip().casefold().strip('"')
+    if q.isdigit():
+        g = bot.get_guild(int(q))
+        if g:
+            return g
+    exact = [g for g in bot.guilds if g.name.casefold() == q]
+    if exact:
+        return exact[0]
+    return next((g for g in bot.guilds if q in g.name.casefold()), None)
+
+
+@bot.hybrid_command(name='disableai', help='Bot owner: disable premium AI Manager for a server.')
+@app_commands.describe(server='Server name or ID; leave empty for the selector.')
+async def disable_ai(ctx: commands.Context, *, server: str = ''):
+    if not _is_owner(ctx.author.id):
+        await ctx.send(embed=style_embed('Unauthorized', description='Only bot owners can disable premium AI.', kind='error'))
+        return
+    if not server.strip():
+        await ctx.send(embed=style_embed('Disable AI', description='Select a server.', kind='warn'), view=ServerSelectorView(ctx.author.id, 'ai_disable', list(bot.guilds)))
+        return
+    target = _find_guild(server)
+    if not target:
+        await ctx.send(embed=style_embed('Server Not Found', description='The bot is not in that server.', kind='error'))
+        return
+    await set_ai_enabled(target.id, False)
+    await set_nonprefix_enabled(target.id, False)
+    await ctx.send(embed=style_embed('AI Manager Disabled', description=f'🔒 AI Manager and AI non-prefix are disabled for **{target.name}**.', kind='success'))
+
+
+@bot.hybrid_command(name='providenonprefix', help='Bot owner: enable AI non-prefix for a server with AI Manager already enabled.')
+@app_commands.describe(server='Server name or ID; leave empty for the selector.')
+async def provide_nonprefix(ctx: commands.Context, *, server: str = ''):
+    if not _is_owner(ctx.author.id):
+        await ctx.send(embed=style_embed('Unauthorized', description='Only bot owners can enable premium AI non-prefix.', kind='error'))
+        return
+    if not server.strip():
+        await ctx.send(embed=style_embed('AI Non-Prefix', description='Select a server.', kind='info'), view=ServerSelectorView(ctx.author.id, 'nonprefix', list(bot.guilds)))
+        return
+    target = _find_guild(server)
+    if not target:
+        await ctx.send(embed=style_embed('Server Not Found', description='The bot is not in that server.', kind='error'))
+        return
+    data = await get_guild(target.id)
+    if not data.get('aiEnabled'):
+        await ctx.send(embed=style_embed('Enable AI First', description='Run `?provideai` for this server first.', kind='warn'))
+        return
+    await set_nonprefix_enabled(target.id, True)
+    await ctx.send(embed=style_embed('AI Non-Prefix Enabled', description=f'✅ Non-prefix AI commands are enabled for **{target.name}**.', kind='success'))
+
+
+@bot.hybrid_command(name='disablenonprefix', help='Bot owner: disable AI non-prefix for a server.')
+@app_commands.describe(server='Server name or ID; leave empty for the selector.')
+async def disable_nonprefix(ctx: commands.Context, *, server: str = ''):
+    if not _is_owner(ctx.author.id):
+        await ctx.send(embed=style_embed('Unauthorized', description='Only bot owners can disable premium AI non-prefix.', kind='error'))
+        return
+    if not server.strip():
+        await ctx.send(embed=style_embed('AI Non-Prefix', description='Select a server.', kind='info'), view=ServerSelectorView(ctx.author.id, 'nonprefix_disable', list(bot.guilds)))
+        return
+    target = _find_guild(server)
+    if not target:
+        await ctx.send(embed=style_embed('Server Not Found', description='The bot is not in that server.', kind='error'))
+        return
+    await set_nonprefix_enabled(target.id, False)
+    await ctx.send(embed=style_embed('AI Non-Prefix Disabled', description=f'🔒 Non-prefix AI commands are disabled for **{target.name}**.', kind='success'))
+
+
+@bot.hybrid_command(name='aistatus', help='Bot owner: check premium AI status for a server.')
+@app_commands.describe(server='Server name or ID; leave empty for the current server.')
+async def ai_status(ctx: commands.Context, *, server: str = ''):
+    if not _is_owner(ctx.author.id):
+        await ctx.send(embed=style_embed('Unauthorized', description='Only bot owners can use AI status.', kind='error'))
+        return
+    target = _find_guild(server) if server.strip() else ctx.guild
+    if not target:
+        await ctx.send(embed=style_embed('Server Not Found', description='Select/provide a server.', kind='error'))
+        return
+    data = await get_guild(target.id)
+    role = target.get_role(int(data['managerRoleId'])) if data.get('managerRoleId') else None
+    desc = f"**Server:** {target.name}\n**Server ID:** `{target.id}`\n**AI Manager:** {'✅ Enabled' if data.get('aiEnabled') else '❌ Disabled'}\n**AI Non-Prefix:** {'✅ Enabled' if data.get('nonPrefixEnabled') else '❌ Disabled'}\n**AI Manager Role:** {role.mention if role else 'Not set (staff permissions)'}"
+    await ctx.send(embed=style_embed('AI Manager Status', description=desc, kind='info'))
+
+
+@bot.hybrid_command(name='ailist', help='Bot owner: list servers with premium AI enabled.')
+async def ai_list(ctx: commands.Context):
+    if not _is_owner(ctx.author.id):
+        await ctx.send(embed=style_embed('Unauthorized', description='Only bot owners can list premium AI servers.', kind='error'))
+        return
+    rows = await __import__('bot.ai_manager_database', fromlist=['list_enabled_guilds']).list_enabled_guilds()
+    if not rows:
+        await ctx.send(embed=style_embed('AI Servers', description='No servers currently have premium AI enabled.', kind='info'))
+        return
+    lines = []
+    for row in rows:
+        g = bot.get_guild(int(row.get('guildId', 0)))
+        if g:
+            lines.append(f"• **{g.name}** — `{g.id}` — non-prefix {'✅' if row.get('nonPrefixEnabled') else '❌'}")
+    await ctx.send(embed=style_embed('Premium AI Servers', description='\n'.join(lines) or 'No matching guilds are currently cached.', kind='info'))
+
+
+@bot.hybrid_command(name='aihelp', help='Show the complete premium AI Manager guide for this server.')
+async def ai_help(ctx: commands.Context):
+    if not await _ai_allowed(ctx):
+        await ctx.send(embed=_disabled_message())
+        return
+    data = await get_guild(ctx.guild.id)
+    role_text = f"<@&{data['managerRoleId']}>" if data.get('managerRoleId') else 'Not set (staff permissions)'
+    embed = style_embed('AI Manager Help', description='Use AI as a private, server-specific assistant. It reads only this server’s imported prices, rules, and services.', kind='info')
+    embed.add_field(name='🤖 Ask AI', value='`?ai <question>` or `/ai <question>`\nWith premium non-prefix enabled: `ai <question>`', inline=False)
+    embed.add_field(name='📥 Import Data', value='`?aiimportprice [title]` / `/aiimportprice [title]` — start a bulk price import. Paste the full text across multiple messages, then type `done`.\n`?aiimportrules [title]` / `/aiimportrules [title]` — start a bulk rules/policy import. Paste the full text across multiple messages, then type `done`.\nDuring an import: send more text, `done` = save, `cancel` = discard.\nWith AI non-prefix enabled, the same commands can be typed without `?`.', inline=False)
+    embed.add_field(name='💰 Prices', value='`?aiprice set <service> <price>` — add/update a price.\n`?aiprice list` — view prices.\n`?aiprice remove <service>` — remove one.\n`?aiprice clear` — delete all prices.', inline=False)
+    embed.add_field(name='📜 Rules', value='`?airule add <rule>` — add a rule.\n`?airule list` — view rules.\n`?airule remove <number>` — remove one.\n`?airule clear` — delete all rules.', inline=False)
+    embed.add_field(name='🧰 Services', value='`?aiservice add <service>` — add a service.\n`?aiservice list` — view services.\n`?aiservice remove <service>` — remove one.\n`?aiservice clear` — delete all services.', inline=False)
+    embed.add_field(name='🛠️ Server Actions', value='`?ai create a role called Trial Staff with timeout members` — AI prepares a safe action preview.\n`?ai create a channel called staff-chat` — AI can prepare a channel action.\n`Confirm` is required before changes are made.', inline=False)
+    embed.add_field(name='⚙️ Configuration', value=f'`?aiconfig` — show AI status.\n`?aiconfig manager @role` — set the AI Manager role.\n**AI Manager Role:** {role_text}', inline=False)
+    embed.add_field(name='🧹 Clear Data', value='`?aiclear` — clear all AI Manager data for this server.', inline=False)
+    embed.set_footer(text='All AI Manager data is isolated per server.')
+    await ctx.send(embed=embed)
+
+
+@bot.hybrid_command(name='ai', help='Ask the server-specific AI Manager a question or request a safe server action.')
+@app_commands.describe(question='Your question/request for the AI Manager.')
+async def ai_cmd(ctx: commands.Context, *, question: str):
+    if not await _ai_allowed(ctx):
+        await ctx.send(embed=_disabled_message())
+        return
+    data = await get_guild(ctx.guild.id)
+    result = await _gemini(question, ctx, data)
+    if not result:
+        await ctx.send(embed=style_embed('AI Manager', description='⚠️ AI is temporarily unavailable. Check `GEMINI_API_KEY` and the AI service logs.', kind='warn'))
+        return
+    if result.get('mode') != 'action' or not result.get('action') or result.get('action', {}).get('type') in (None, 'null'):
+        answer = str(result.get('answer') or 'I could not find that in this server’s configured information.')
+        await ctx.send(embed=style_embed('AI Manager', description=answer, kind='info'))
+        return
+    action = result['action']
+    if action.get('type') == 'create_role' and 'name' in action:
+        perms = [p for p in action.get('permissions', []) if isinstance(p, str) and p not in {'administrator', 'manage_guild'}]
+        summary = f"**Action:** Create role\n**Name:** `{action['name']}`\n**Permissions:** {', '.join(perms) if perms else 'None'}"
+    elif action.get('type') == 'create_channel' and 'name' in action:
+        summary = f"**Action:** Create text channel\n**Name:** `#{action['name']}`"
+    elif action.get('type') == 'add_role':
+        summary = f"**Action:** Add role `{action.get('role_name', '')}` to <@{action.get('member_id', '')}>"
+    else:
+        await ctx.send(embed=style_embed('AI Manager', description='I understood the request, but that action is not supported yet.', kind='warn'))
+        return
+    action_id = hash((ctx.message.id if ctx.message else 0, ctx.author.id, question))
+    _PENDING_ACTIONS[action_id] = action
+    await ctx.send(embed=style_embed('AI Action Preview', description=summary + '\n\nNothing has been changed yet. Confirm to execute.', kind='warn'), view=AIActionView(ctx.author.id, action_id))
+
+
+@bot.hybrid_command(name='aiimportprice', help='Import a large pricing document by sending multiple messages, then type done.')
+@app_commands.describe(title='Optional title for the imported pricing document.')
+async def ai_import_price(ctx: commands.Context, title: str = ''):
+    if not await _management_allowed(ctx):
+        await ctx.send(embed=_disabled_message())
+        return
+    session = _start_import_session(ctx.guild.id, ctx.author.id, 'price', title)
+    await ctx.send(embed=style_embed(
+        'AI Price Import Started',
+        description=(
+            f"📥 **Title:** `{session['title']}`\n\n"
+            'Send the complete pricing text in the next message(s). Long documents can be split across many messages.\n\n'
+            'When finished, type **`done`**.\n'
+            'Type **`cancel`** to discard everything.\n\n'
+            'The full text is stored only for this server and used by its AI Manager.'
+        ),
+        kind='info',
+    ))
+
+
+@bot.hybrid_command(name='aiimportrules', help='Import a large rules/policy document by sending multiple messages, then type done.')
+@app_commands.describe(title='Optional title for the imported rules document.')
+async def ai_import_rules(ctx: commands.Context, title: str = ''):
+    if not await _management_allowed(ctx):
+        await ctx.send(embed=_disabled_message())
+        return
+    session = _start_import_session(ctx.guild.id, ctx.author.id, 'rules', title)
+    await ctx.send(embed=style_embed(
+        'AI Rules Import Started',
+        description=(
+            f"📥 **Title:** `{session['title']}`\n\n"
+            'Send the complete rules/policies in the next message(s). Long documents can be split across many messages.\n\n'
+            'When finished, type **`done`**.\n'
+            'Type **`cancel`** to discard everything.\n\n'
+            'The full text is stored only for this server and used by its AI Manager.'
+        ),
+        kind='info',
+    ))
+
+
+@bot.hybrid_command(name='aiprice', help='Manage per-server AI prices: set, list, remove, clear.')
+@app_commands.describe(action='set, list, remove, or clear', service='Service name', price='Price text')
+async def ai_price(ctx: commands.Context, action: str, service: str = '', *, price: str = ''):
+    if not await _management_allowed(ctx):
+        await ctx.send(embed=_disabled_message())
+        return
+    action = action.lower().strip()
+    if action == 'set':
+        if not service or not price:
+            await ctx.send('Usage: `?aiprice set <service> <price>`')
+            return
+        await add_price(ctx.guild.id, service, price)
+        await ctx.send(embed=style_embed('AI Price Updated', description=f'✅ **{service}** → `{price}`', kind='success'))
+    elif action == 'list':
+        data = await get_guild(ctx.guild.id)
+        rows = data.get('prices') or []
+        desc = '\n'.join(f"• **{r.get('service')}** — `{r.get('price')}`" for r in rows) or 'No prices configured.'
+        await ctx.send(embed=style_embed('AI Prices', description=desc, kind='info'))
+    elif action == 'remove':
+        ok = await remove_price(ctx.guild.id, service)
+        await ctx.send(embed=style_embed('AI Price Removed', description='✅ Removed.' if ok else '❗ Price not found.', kind='success' if ok else 'warn'))
+    elif action == 'clear':
+        await clear_category(ctx.guild.id, 'prices')
+        await clear_price_sheets(ctx.guild.id)
+        await ctx.send(embed=style_embed('AI Prices Cleared', description='✅ All structured prices and imported pricing sheets for this server were cleared.', kind='success'))
+    else:
+        await ctx.send('Usage: `?aiprice set <service> <price>` · `list` · `remove <service>` · `clear`')
+
+
+@bot.hybrid_command(name='airule', help='Manage per-server AI rules: add, list, remove, clear.')
+@app_commands.describe(action='add, list, remove, or clear', value='Rule text or rule number')
+async def ai_rule(ctx: commands.Context, action: str, *, value: str = ''):
+    if not await _management_allowed(ctx):
+        await ctx.send(embed=_disabled_message())
+        return
+    action = action.lower().strip()
+    if action == 'add':
+        if not value.strip():
+            await ctx.send('Usage: `?airule add <rule>`')
+            return
+        await add_rule(ctx.guild.id, value)
+        await ctx.send(embed=style_embed('AI Rule Added', description='✅ Rule saved for this server.', kind='success'))
+    elif action == 'list':
+        data = await get_guild(ctx.guild.id)
+        rows = data.get('rules') or []
+        shown = '\n'.join(f"**{i}.** {r.replace('RULE_SHEET::', '📄 ').replace('PRICE_SHEET::', '💰 ')}" for i, r in enumerate(rows, 1)) or 'No AI rules/imports configured.'
+        await ctx.send(embed=style_embed('AI Rules', description=shown[:3900], kind='info'))
+    elif action == 'remove':
+        try:
+            idx = int(value)
+        except ValueError:
+            await ctx.send('Usage: `?airule remove <number>`')
+            return
+        ok = await remove_rule(ctx.guild.id, idx)
+        await ctx.send(embed=style_embed('AI Rule Removed', description='✅ Removed.' if ok else '❗ Rule number not found.', kind='success' if ok else 'warn'))
+    elif action == 'clear':
+        await clear_category(ctx.guild.id, 'rules')
+        await clear_rule_sheets(ctx.guild.id)
+        await ctx.send(embed=style_embed('AI Rules Cleared', description='✅ All structured rules and imported rules/policy sheets for this server were cleared.', kind='success'))
+    else:
+        await ctx.send('Usage: `?airule add <rule>` · `list` · `remove <number>` · `clear`')
+
+
+@bot.hybrid_command(name='aiservice', help='Manage per-server AI services: add, list, remove, clear.')
+@app_commands.describe(action='add, list, remove, or clear', service='Service name')
+async def ai_service(ctx: commands.Context, action: str, *, service: str = ''):
+    if not await _management_allowed(ctx):
+        await ctx.send(embed=_disabled_message())
+        return
+    action = action.lower().strip()
+    if action == 'add':
+        if not service:
+            await ctx.send('Usage: `?aiservice add <service>`')
+            return
+        await add_service(ctx.guild.id, service)
+        await ctx.send(embed=style_embed('AI Service Added', description=f'✅ Added **{service}**.', kind='success'))
+    elif action == 'list':
+        data = await get_guild(ctx.guild.id)
+        desc = '\n'.join(f'• {s}' for s in (data.get('services') or [])) or 'No services configured.'
+        await ctx.send(embed=style_embed('AI Services', description=desc, kind='info'))
+    elif action == 'remove':
+        ok = await remove_service(ctx.guild.id, service)
+        await ctx.send(embed=style_embed('AI Service Removed', description='✅ Removed.' if ok else '❗ Service not found.', kind='success' if ok else 'warn'))
+    elif action == 'clear':
+        await clear_category(ctx.guild.id, 'services')
+        await ctx.send(embed=style_embed('AI Services Cleared', description='✅ All AI services for this server were cleared.', kind='success'))
+    else:
+        await ctx.send('Usage: `?aiservice add <service>` · `list` · `remove <service>` · `clear`')
+
+
+@bot.hybrid_command(name='aiconfig', help='Show AI configuration or set the AI Manager role.')
+@app_commands.describe(manager='Optional AI Manager role to assign')
+async def ai_config(ctx: commands.Context, manager: discord.Role | None = None):
+    if not await _management_allowed(ctx):
+        await ctx.send(embed=_disabled_message())
+        return
+    data = await get_guild(ctx.guild.id)
+    if manager is not None:
+        if manager.is_default() or manager.is_bot_managed():
+            await ctx.send(embed=style_embed('Invalid Role', description='Choose a normal server role.', kind='error'))
+            return
+        await set_manager_role(ctx.guild.id, manager.id)
+        data = await get_guild(ctx.guild.id)
+    role = ctx.guild.get_role(int(data['managerRoleId'])) if data.get('managerRoleId') else None
+    desc = f"**AI Enabled:** {'✅' if data.get('aiEnabled') else '❌'}\n**Non-Prefix:** {'✅' if data.get('nonPrefixEnabled') else '❌'}\n**AI Manager Role:** {role.mention if role else 'Not set (staff permissions)'}\n**Structured Prices:** `{len(data.get('prices') or [])}`\n**Price Sheets:** `{len(data.get('priceSheets') or [])}`\n**Rules:** `{len(data.get('rules') or [])}`\n**Rule Sheets:** `{len(data.get('ruleSheets') or [])}`\n**Services:** `{len(data.get('services') or [])}`"
+    await ctx.send(embed=style_embed('AI Manager Configuration', description=desc, kind='info'))
+
+
+@bot.hybrid_command(name='aiclear', help='Clear all AI Manager data for this server.')
+async def ai_clear(ctx: commands.Context):
+    if not await _management_allowed(ctx):
+        await ctx.send(embed=_disabled_message())
+        return
+    await clear_all(ctx.guild.id)
+    await ctx.send(embed=style_embed('AI Manager Cleared', description='✅ All AI Manager prices, rules, services, and the Manager role setting were cleared for this server.', kind='success'))
+
+
+async def init():
+    await init_ai_db()

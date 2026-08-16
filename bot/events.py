@@ -446,6 +446,14 @@ async def on_message(message):
     except Exception as e:
         print(f"⚠️ Revenue validation error: {e}")
 
+    # --- AI LARGE-TEXT IMPORT SESSIONS ---
+    try:
+        from bot.cogs.ai_manager import handle_ai_import_message
+        if await handle_ai_import_message(message):
+            return
+    except Exception as e:
+        print(f"⚠️ AI import session handling error: {e}")
+
     if message.author.id in afk_users:
         data = afk_users.pop(message.author.id)
         try: await message.author.edit(nick=data["old_name"])
