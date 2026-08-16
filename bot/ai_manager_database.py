@@ -131,6 +131,14 @@ async def add_rule_sheet(guild_id: int, title: str, text: str):
     return await update_guild(guild_id, {'ruleSheets': rows})
 
 
+async def clear_price_sheets(guild_id: int):
+    return await update_guild(guild_id, {'priceSheets': []})
+
+
+async def clear_rule_sheets(guild_id: int):
+    return await update_guild(guild_id, {'ruleSheets': []})
+
+
 async def add_rule(guild_id: int, rule: str):
     data = await get_guild(guild_id)
     rows = list(data.get('rules') or [])
