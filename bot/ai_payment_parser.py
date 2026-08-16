@@ -40,6 +40,14 @@ def _simple_aliases(payment: str) -> list[str]:
             expanded.append("perm " + value[10:])
         if value.startswith("physical "):
             expanded.append(value[9:].strip())
+        if "x2 " in value:
+            expanded.append(value.replace("x2 ", "2x "))
+        if value.startswith("2x "):
+            expanded.append(value.replace("2x ", "x2 ", 1))
+        stripped = re.sub(r"\b(?:gamepass|game pass|limited|skin|cosmetic|item)\b", " ", value)
+        stripped = _clean(stripped)
+        if stripped:
+            expanded.append(stripped)
     return list(dict.fromkeys(x for x in expanded if x))
 
 
