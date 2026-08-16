@@ -30,7 +30,6 @@ from bot.database import (
 from bot.status import publish_bot_status
 from bot.config import mod_group
 from bot import mongo_bridge
-from bot import ai_manager
 
 
 # Persistent views (defined in feature modules)
@@ -77,10 +76,6 @@ async def on_ready():
         await init_revenue_db()
         print("✅ Revenue database initialized")
         try:
-            await ai_manager.initialize_ai_manager()
-        except Exception as e:
-            print(f"⚠️ AI Manager database init error: {e}")
-        try:
             from bot.cogs.revenue import start_revenue_manager_weekly_loop
             start_revenue_manager_weekly_loop()
         except Exception as e:
@@ -90,6 +85,12 @@ async def on_ready():
         import traceback
         traceback.print_exc()
     
+    try:
+        from bot.cogs.ai_manager import init as init_ai_manager
+        await init_ai_manager()
+    except Exception as e:
+        print(f"⚠️ AI Manager init error: {e}")
+
     await publish_bot_status()
     if _ready_initialized:
         return
@@ -290,17 +291,6 @@ VOUCH_PATTERN = re.compile(
 NOPREFIX_CONFIRM_COMMANDS = {
     "warn", "clearwarnings", "mute", "unmute", "kick", "ban", "unban", "bon", "clearrevenue",
     "makerevenuemanager",
-    # Premium AI Manager: commands that can change stored data or premium access.
-    "provideai", "disableai", "providenonprefix", "disablenonprefix",
-    "aiimportprice", "aiimportrules", "aiprice", "airule", "aiservice",
-    "aiconfig", "aiclear",
-}
-
-AI_NOPREFIX_COMMANDS = {
-    "ai", "aihelp", "aiimportprice", "aiimportrules", "aiprice", "airule",
-    "aiservice", "aiconfig", "aiclear",
-    "provideai", "disableai", "providenonprefix", "disablenonprefix",
-    "aistatus", "ailist",
 }
 
 async def run_message_as_command(message: discord.Message):
@@ -456,15 +446,6 @@ async def on_message(message):
     except Exception as e:
         print(f"⚠️ Revenue validation error: {e}")
 
-    # --- PREMIUM AI BULK IMPORT SESSIONS ---
-    # Consume follow-up chunks for ?aiimportprice / ?aiimportrules before
-    # normal command/no-prefix processing.
-    try:
-        if await ai_manager.handle_import_message(message):
-            return
-    except Exception as e:
-        print(f"⚠️ AI import handler error: {e}")
-
     if message.author.id in afk_users:
         data = afk_users.pop(message.author.id)
         try: await message.author.edit(nick=data["old_name"])
@@ -577,42 +558,33 @@ async def on_message(message):
     # still require a click-to-confirm step since there's no prefix to
     # signal "this is a command" and mistakes here are hard to undo.
     
-    # --- PREMIUM AI NON-PREFIX GATING ---
-    # AI non-prefix is independently controlled by the bot owner per guild.
-    # It does not require the legacy global no-prefix switch, but regular
-    # no-prefix permissions still apply to non-owner users.
-    first_word = message.content.strip().split(" ")[0].lower() if message.content.strip() else ""
-    candidate_command = bot.get_command(first_word) if first_word else None
-    if candidate_command and first_word in AI_NOPREFIX_COMMANDS:
-        if message.author.id in BOT_OWNER_IDS:
-            if first_word in NOPREFIX_CONFIRM_COMMANDS:
-                await send_noprefix_confirmation(message, first_word)
-            else:
-                await run_message_as_command(message)
-            return
-        try:
-            ai_cfg = await ai_manager.get_server_config(message.guild.id)
-        except Exception:
-            ai_cfg = {}
-        if ai_cfg.get("ai_enabled") and ai_cfg.get("nonprefix_enabled") and has_noprefix_perm(message.guild, message.author):
-            if first_word in NOPREFIX_CONFIRM_COMMANDS:
-                await send_noprefix_confirmation(message, first_word)
-            else:
-                await run_message_as_command(message)
-            return
-        # AI non-prefix is intentionally locked. Do not feed the plain text
-        # into the normal no-prefix system.
-
-    # Check if legacy no-prefix system is globally enabled
+    # Check if no-prefix system is globally enabled
     from bot.database import is_noprefix_enabled
     if is_noprefix_enabled():
+        first_word = message.content.strip().split(" ")[0].lower() if message.content.strip() else ""
         candidate_command = bot.get_command(first_word) if first_word else None
-        if candidate_command and has_noprefix_perm(message.guild, message.author):
-            if first_word in NOPREFIX_CONFIRM_COMMANDS:
-                await send_noprefix_confirmation(message, first_word)
-            else:
-                await run_message_as_command(message)
-            return
+        if candidate_command:
+            ai_commands = {
+                "ai", "aihelp", "aiimportprice", "aiimportrules", "aiprice",
+                "airule", "aiservice", "aiconfig", "aiclear",
+            }
+            if first_word in ai_commands:
+                try:
+                    from bot.ai_manager_database import get_guild as get_ai_guild
+                    ai_cfg = await get_ai_guild(message.guild.id)
+                    if ai_cfg.get("aiEnabled") and ai_cfg.get("nonPrefixEnabled"):
+                        # The hybrid command itself enforces staff / AI Manager role access.
+                        await run_message_as_command(message)
+                        return
+                except Exception as exc:
+                    print(f"⚠️ AI non-prefix check failed: {exc}")
+                    return
+            if has_noprefix_perm(message.guild, message.author):
+                if first_word in NOPREFIX_CONFIRM_COMMANDS:
+                    await send_noprefix_confirmation(message, first_word)
+                else:
+                    await run_message_as_command(message)
+                return
 
     # Staff with Manage Messages skip automod, but MUST still run prefix commands.
     if message.author.guild_permissions.manage_messages:

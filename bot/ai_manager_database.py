@@ -1,343 +1,178 @@
-
-"""Per-server premium AI Manager data layer.
-
-All data is scoped by guild_id. The bot owner can enable the feature for any
-guild the bot is currently in; the target server does not have to include the
-bot owner as a member.
-"""
 from __future__ import annotations
 
-import datetime as dt
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+except ImportError:
+    AsyncIOMotorClient = None
 
-UTC = dt.timezone.utc
-MONGO_URI = os.getenv("MONGO_URI") or os.getenv("MONGODB_URL")
-MONGO_DB = os.getenv("MONGO_DB", "bunnydb")
+MONGO_URI = os.getenv('MONGO_URI') or os.getenv('MONGODB_URL')
+MONGO_DB = os.getenv('MONGO_DB', 'bunnydb')
+COLLECTION = 'aiManagerGuilds'
 
-_client: Optional[AsyncIOMotorClient] = None
-_db: Optional[AsyncIOMotorDatabase] = None
+_client = None
+_db = None
+
+DEFAULT = {
+    'guildId': 0,
+    'aiEnabled': False,
+    'nonPrefixEnabled': False,
+    'managerRoleId': None,
+    'prices': [],
+    'rules': [],
+    'services': [],
+    'priceSheets': [],
+    'ruleSheets': [],
+}
 
 
-async def init_ai_manager_db() -> bool:
+def _doc(guild_id: int) -> dict[str, Any]:
+    return {**DEFAULT, 'guildId': int(guild_id)}
+
+
+async def connect() -> bool:
     global _client, _db
     if _db is not None:
         return True
-    if not MONGO_URI:
-        print("⚠️ AI Manager: MONGO_URI not set - premium AI data is unavailable")
+    if not MONGO_URI or AsyncIOMotorClient is None:
         return False
     try:
         _client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=8000)
         _db = _client[MONGO_DB]
-        await _db.command("ping")
-        names = await _db.list_collection_names()
-        collections = {
-            "ai_manager_servers": {"guild_id": True},
-            "ai_manager_prices": {"guild_id": False},
-            "ai_manager_rules": {"guild_id": False},
-            "ai_manager_services": {"guild_id": False},
-            "ai_manager_imports": {"guild_id": False},
-        }
-        for name, meta in collections.items():
-            if name not in names:
-                await _db.create_collection(name)
-            if name == "ai_manager_servers":
-                await _db[name].create_index("guild_id", unique=True)
-            else:
-                await _db[name].create_index("guild_id")
-        print(f"✅ AI Manager MongoDB ready: {MONGO_DB}")
+        await _db.command('ping')
+        print(f'✅ AI Manager Mongo connected ({MONGO_DB})')
         return True
     except Exception as exc:
-        print(f"❌ AI Manager MongoDB initialization failed: {exc}")
+        print(f'⚠️ AI Manager Mongo connection failed: {exc}')
         _client = None
         _db = None
         return False
 
 
-async def _ensure() -> Optional[AsyncIOMotorDatabase]:
-    if _db is None:
-        await init_ai_manager_db()
-    return _db
+async def init() -> bool:
+    return await connect()
 
 
-async def get_server_config(guild_id: int) -> Dict[str, Any]:
-    db = await _ensure()
-    if db is None:
-        return {
-            "guild_id": int(guild_id),
-            "ai_enabled": False,
-            "nonprefix_enabled": False,
-            "manager_role_id": None,
-        }
-    doc = await db["ai_manager_servers"].find_one({"guild_id": int(guild_id)})
-    if not doc:
-        return {
-            "guild_id": int(guild_id),
-            "ai_enabled": False,
-            "nonprefix_enabled": False,
-            "manager_role_id": None,
-        }
-    return doc
+async def get_guild(guild_id: int) -> dict[str, Any]:
+    if not await connect():
+        return _doc(guild_id)
+    found = await _db[COLLECTION].find_one({'guildId': int(guild_id)})
+    if not found:
+        found = _doc(guild_id)
+        await _db[COLLECTION].insert_one(found.copy())
+    found.pop('_id', None)
+    for key, default in DEFAULT.items():
+        found.setdefault(key, default if key not in {'prices', 'rules', 'services'} else list(default))
+    return found
 
 
-async def set_ai_enabled(guild_id: int, enabled: bool) -> bool:
-    db = await _ensure()
-    if db is None:
-        return False
-    now = dt.datetime.now(UTC)
-    result = await db["ai_manager_servers"].update_one(
-        {"guild_id": int(guild_id)},
-        {"$set": {"ai_enabled": bool(enabled), "updated_at": now},
-         "$setOnInsert": {"guild_id": int(guild_id), "nonprefix_enabled": False, "manager_role_id": None}},
+async def update_guild(guild_id: int, updates: dict[str, Any]) -> dict[str, Any]:
+    if not await connect():
+        merged = _doc(guild_id)
+        merged.update(updates)
+        return merged
+    await _db[COLLECTION].update_one(
+        {'guildId': int(guild_id)},
+        {'$set': updates},
         upsert=True,
     )
-    return bool(result.acknowledged)
+    return await get_guild(guild_id)
 
 
-async def set_nonprefix_enabled(guild_id: int, enabled: bool) -> bool:
-    db = await _ensure()
-    if db is None:
+async def set_ai_enabled(guild_id: int, enabled: bool):
+    return await update_guild(guild_id, {'aiEnabled': bool(enabled)})
+
+
+async def set_nonprefix_enabled(guild_id: int, enabled: bool):
+    return await update_guild(guild_id, {'nonPrefixEnabled': bool(enabled)})
+
+
+async def set_manager_role(guild_id: int, role_id: int | None):
+    return await update_guild(guild_id, {'managerRoleId': role_id})
+
+
+async def clear_category(guild_id: int, category: str):
+    if category not in {'prices', 'rules', 'services'}:
+        raise ValueError(category)
+    return await update_guild(guild_id, {category: []})
+
+
+async def add_price(guild_id: int, service: str, price: str):
+    data = await get_guild(guild_id)
+    rows = list(data.get('prices') or [])
+    service_key = service.strip().casefold()
+    rows = [r for r in rows if str(r.get('service', '')).strip().casefold() != service_key]
+    rows.append({'service': service.strip(), 'price': price.strip()})
+    return await update_guild(guild_id, {'prices': rows})
+
+
+async def remove_price(guild_id: int, service: str):
+    data = await get_guild(guild_id)
+    service_key = service.strip().casefold()
+    rows = [r for r in (data.get('prices') or []) if str(r.get('service', '')).strip().casefold() != service_key]
+    changed = len(rows) != len(data.get('prices') or [])
+    await update_guild(guild_id, {'prices': rows})
+    return changed
+
+
+async def add_price_sheet(guild_id: int, title: str, text: str):
+    data = await get_guild(guild_id)
+    rows = list(data.get('priceSheets') or [])
+    rows.append({'title': title.strip(), 'text': text.strip()})
+    return await update_guild(guild_id, {'priceSheets': rows})
+
+
+async def add_rule_sheet(guild_id: int, title: str, text: str):
+    data = await get_guild(guild_id)
+    rows = list(data.get('ruleSheets') or [])
+    rows.append({'title': title.strip(), 'text': text.strip()})
+    return await update_guild(guild_id, {'ruleSheets': rows})
+
+
+async def add_rule(guild_id: int, rule: str):
+    data = await get_guild(guild_id)
+    rows = list(data.get('rules') or [])
+    rows.append(rule.strip())
+    return await update_guild(guild_id, {'rules': rows})
+
+
+async def remove_rule(guild_id: int, index: int):
+    data = await get_guild(guild_id)
+    rows = list(data.get('rules') or [])
+    if index < 1 or index > len(rows):
         return False
-    now = dt.datetime.now(UTC)
-    result = await db["ai_manager_servers"].update_one(
-        {"guild_id": int(guild_id)},
-        {"$set": {"nonprefix_enabled": bool(enabled), "updated_at": now},
-         "$setOnInsert": {"guild_id": int(guild_id), "ai_enabled": False, "manager_role_id": None}},
-        upsert=True,
-    )
-    return bool(result.acknowledged)
+    rows.pop(index - 1)
+    await update_guild(guild_id, {'rules': rows})
+    return True
 
 
-async def set_manager_role(guild_id: int, role_id: Optional[int]) -> bool:
-    db = await _ensure()
-    if db is None:
-        return False
-    result = await db["ai_manager_servers"].update_one(
-        {"guild_id": int(guild_id)},
-        {"$set": {"manager_role_id": int(role_id) if role_id else None, "updated_at": dt.datetime.now(UTC)}},
-        upsert=True,
-    )
-    return bool(result.acknowledged)
+async def add_service(guild_id: int, service: str):
+    data = await get_guild(guild_id)
+    rows = list(data.get('services') or [])
+    key = service.strip().casefold()
+    if not any(str(x).strip().casefold() == key for x in rows):
+        rows.append(service.strip())
+    return await update_guild(guild_id, {'services': rows})
 
 
-async def list_enabled_servers() -> List[Dict[str, Any]]:
-    db = await _ensure()
-    if db is None:
-        return []
-    return await db["ai_manager_servers"].find({"ai_enabled": True}).sort("guild_id", 1).to_list(length=None)
+async def remove_service(guild_id: int, service: str):
+    data = await get_guild(guild_id)
+    key = service.strip().casefold()
+    rows = [x for x in (data.get('services') or []) if str(x).strip().casefold() != key]
+    changed = len(rows) != len(data.get('services') or [])
+    await update_guild(guild_id, {'services': rows})
+    return changed
 
 
-async def upsert_price(guild_id: int, service: str, price: str, notes: str = "") -> bool:
-    db = await _ensure()
-    if db is None:
-        return False
-    service = service.strip()
-    if not service:
-        return False
-    result = await db["ai_manager_prices"].update_one(
-        {"guild_id": int(guild_id), "service_key": service.casefold()},
-        {"$set": {
-            "guild_id": int(guild_id),
-            "service": service,
-            "price": price.strip(),
-            "notes": notes.strip(),
-            "updated_at": dt.datetime.now(UTC),
-        }},
-        upsert=True,
-    )
-    return bool(result.acknowledged)
-
-
-async def list_prices(guild_id: int) -> List[Dict[str, Any]]:
-    db = await _ensure()
-    if db is None:
-        return []
-    return await db["ai_manager_prices"].find({"guild_id": int(guild_id)}).sort("service_key", 1).to_list(length=None)
-
-
-async def remove_price(guild_id: int, service: str) -> bool:
-    db = await _ensure()
-    if db is None:
-        return False
-    result = await db["ai_manager_prices"].delete_one({"guild_id": int(guild_id), "service_key": service.strip().casefold()})
-    return result.deleted_count > 0
-
-
-async def clear_prices(guild_id: int) -> int:
-    db = await _ensure()
-    if db is None:
-        return 0
-    result = await db["ai_manager_prices"].delete_many({"guild_id": int(guild_id)})
-    return int(result.deleted_count)
-
-
-async def add_rule(guild_id: int, rule: str, category: str = "General") -> bool:
-    db = await _ensure()
-    if db is None:
-        return False
-    rule = rule.strip()
-    if not rule:
-        return False
-    result = await db["ai_manager_rules"].insert_one({
-        "guild_id": int(guild_id),
-        "rule": rule,
-        "category": category.strip() or "General",
-        "created_at": dt.datetime.now(UTC),
+async def clear_all(guild_id: int):
+    return await update_guild(guild_id, {
+        'prices': [], 'rules': [], 'services': [], 'priceSheets': [], 'ruleSheets': [], 'managerRoleId': None,
     })
-    return result.acknowledged
 
 
-async def list_rules(guild_id: int) -> List[Dict[str, Any]]:
-    db = await _ensure()
-    if db is None:
+async def list_enabled_guilds() -> list[dict[str, Any]]:
+    if not await connect():
         return []
-    return await db["ai_manager_rules"].find({"guild_id": int(guild_id)}).sort("_id", 1).to_list(length=None)
-
-
-async def remove_rule(guild_id: int, index: int) -> bool:
-    db = await _ensure()
-    if db is None:
-        return False
-    docs = await list_rules(guild_id)
-    if index < 1 or index > len(docs):
-        return False
-    result = await db["ai_manager_rules"].delete_one({"_id": docs[index - 1]["_id"]})
-    return result.deleted_count > 0
-
-
-async def clear_rules(guild_id: int) -> int:
-    db = await _ensure()
-    if db is None:
-        return 0
-    result = await db["ai_manager_rules"].delete_many({"guild_id": int(guild_id)})
-    return int(result.deleted_count)
-
-
-async def add_service(guild_id: int, service: str, description: str = "") -> bool:
-    db = await _ensure()
-    if db is None:
-        return False
-    service = service.strip()
-    if not service:
-        return False
-    result = await db["ai_manager_services"].update_one(
-        {"guild_id": int(guild_id), "service_key": service.casefold()},
-        {"$set": {
-            "guild_id": int(guild_id),
-            "service": service,
-            "description": description.strip(),
-            "updated_at": dt.datetime.now(UTC),
-        }},
-        upsert=True,
-    )
-    return bool(result.acknowledged)
-
-
-async def list_services(guild_id: int) -> List[Dict[str, Any]]:
-    db = await _ensure()
-    if db is None:
-        return []
-    return await db["ai_manager_services"].find({"guild_id": int(guild_id)}).sort("service_key", 1).to_list(length=None)
-
-
-async def remove_service(guild_id: int, service: str) -> bool:
-    db = await _ensure()
-    if db is None:
-        return False
-    result = await db["ai_manager_services"].delete_one({"guild_id": int(guild_id), "service_key": service.strip().casefold()})
-    return result.deleted_count > 0
-
-
-async def clear_services(guild_id: int) -> int:
-    db = await _ensure()
-    if db is None:
-        return 0
-    result = await db["ai_manager_services"].delete_many({"guild_id": int(guild_id)})
-    return int(result.deleted_count)
-
-
-async def add_import(guild_id: int, kind: str, title: str, content: str) -> bool:
-    db = await _ensure()
-    if db is None:
-        return False
-    result = await db["ai_manager_imports"].insert_one({
-        "guild_id": int(guild_id),
-        "kind": kind,
-        "title": title.strip() or ("Prices" if kind == "price" else "Rules"),
-        "content": content,
-        "created_at": dt.datetime.now(UTC),
-    })
-    return result.acknowledged
-
-
-async def list_imports(guild_id: int, kind: Optional[str] = None) -> List[Dict[str, Any]]:
-    db = await _ensure()
-    if db is None:
-        return []
-    query: Dict[str, Any] = {"guild_id": int(guild_id)}
-    if kind:
-        query["kind"] = kind
-    return await db["ai_manager_imports"].find(query).sort("created_at", -1).to_list(length=None)
-
-
-async def clear_imports(guild_id: int, kind: Optional[str] = None) -> int:
-    db = await _ensure()
-    if db is None:
-        return 0
-    query: Dict[str, Any] = {"guild_id": int(guild_id)}
-    if kind:
-        query["kind"] = kind
-    result = await db["ai_manager_imports"].delete_many(query)
-    return int(result.deleted_count)
-
-
-async def clear_all(guild_id: int) -> Dict[str, int]:
-    return {
-        "prices": await clear_prices(guild_id),
-        "rules": await clear_rules(guild_id),
-        "services": await clear_services(guild_id),
-        "imports": await clear_imports(guild_id),
-    }
-
-
-async def get_ai_context(guild_id: int, max_chars: int = 50000) -> str:
-    """Build compact, server-local context for the AI manager."""
-    config = await get_server_config(guild_id)
-    prices = await list_prices(guild_id)
-    rules = await list_rules(guild_id)
-    services = await list_services(guild_id)
-    imports = await list_imports(guild_id)
-
-    parts = [
-        "SERVER AI CONFIGURATION (ONLY FOR THIS SERVER)",
-        f"AI enabled: {config.get('ai_enabled', False)}",
-        "",
-        "SERVICES:",
-    ]
-    parts.extend(
-        f"- {x.get('service')}: {x.get('description')}" if x.get("description") else f"- {x.get('service')}"
-        for x in services
-    )
-    parts.append("")
-    parts.append("PRICES:")
-    parts.extend(
-        f"- {x.get('service')}: {x.get('price')}" + (f" ({x.get('notes')})" if x.get("notes") else "")
-        for x in prices
-    )
-    parts.append("")
-    parts.append("RULES:")
-    parts.extend(
-        f"- [{x.get('category', 'General')}] {x.get('rule')}" for x in rules
-    )
-
-    for item in imports:
-        parts.append("")
-        parts.append(f"IMPORTED {str(item.get('kind', 'data')).upper()} — {item.get('title')}:")
-        parts.append(str(item.get("content") or ""))
-
-    text = "\n".join(parts)
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars] + "\n[Context truncated by server AI manager.]"
+    return await _db[COLLECTION].find({'aiEnabled': True}).to_list(length=None)

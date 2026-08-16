@@ -40,7 +40,7 @@ import bot.cogs.bot_control  # noqa: F401  # Bot control & owner system
 import bot.cogs.role_info  # noqa: F401  # Role information commands
 import bot.cogs.role_management  # noqa: F401  # Dyno-style role creation
 import bot.cogs.command_lists  # noqa: F401  # ?commands and ?commandsinfo
-import bot.ai_manager  # noqa: F401  # Premium per-server AI Manager commands
+import bot.cogs.ai_manager  # noqa: F401  # Premium per-server AI Manager
 
 # Events (on_ready, on_message, member join/leave, message log, etc.)
 import bot.events  # noqa: F401
