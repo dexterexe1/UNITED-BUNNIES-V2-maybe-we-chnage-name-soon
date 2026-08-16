@@ -7,6 +7,7 @@ import discord
 from discord.ext import commands
 import discord.app_commands as app_commands
 import datetime
+import asyncio
 import re
 from collections import defaultdict
 
@@ -21,7 +22,8 @@ from bot.revenue_database import (
     add_revenue_entry, get_revenue_entries, get_revenue_summary,
     get_revenue_channel, set_revenue_channel, clear_revenue_channel,
     get_multi_staff_entries, get_total_entries_count, clear_revenue_data,
-    update_revenue_payment_value
+    update_revenue_payment_value, get_revenue_manager, set_revenue_manager,
+    get_revenue_managers_due, mark_revenue_manager_weekly_dm
 )
 
 # Expected format (FLEXIBLE):
@@ -220,6 +222,141 @@ async def validate_and_record_revenue(message: discord.Message):
 
 
 # ==========================================
+#        REVENUE MANAGER COMMANDS
+# ==========================================
+
+@bot.hybrid_command(
+    name="makerevenuemanager",
+    help="Assign a staff member as the server's revenue manager (mod only)"
+)
+@staff_check(need="mod")
+async def make_revenue_manager_cmd(ctx: commands.Context, member: discord.Member):
+    """Assign one staff member as the revenue manager before revenue setup."""
+    if not ctx.guild:
+        return
+
+    success = await set_revenue_manager(ctx.guild.id, member.id, ctx.author.id)
+    if not success:
+        await ctx.send(embed=style_embed(
+            title="Revenue Manager Error",
+            description="❌ I could not save the revenue manager. Please try again or contact an administrator.",
+            kind="error",
+        ))
+        return
+
+    try:
+        dm_embed = style_embed(
+            title="Revenue Manager Assigned",
+            description=(
+                f"You have been assigned as the **Revenue Manager** for **{ctx.guild.name}**.\n\n"
+                "Each week, I will send you a private reminder to review the revenue activity and "
+                "give the moderators a clear summary.\n\n"
+                "**Weekly workflow**\n"
+                "• Run `?weekrevenue` for the weekly summary.\n"
+                "• Review `?revenuedetails 7` when you need transaction-level details.\n"
+                "• Send the important totals, services, payments, and any issues to the moderators.\n\n"
+                "Your DM is private and is only sent to you by the bot."
+            ),
+            kind="success",
+        )
+        await member.send(embed=dm_embed)
+        dm_note = " A private confirmation was also sent to them."
+    except (discord.Forbidden, discord.HTTPException):
+        dm_note = " I could not DM them, so they may need to allow server-member DMs."
+
+    await ctx.send(embed=style_embed(
+        title="Revenue Manager Assigned",
+        description=(
+            f"{member.mention} is now the **Revenue Manager** for this server.\n\n"
+            "You can now set the revenue channel with `?setrevenuechannel #channel`."
+            f"{dm_note}"
+        ),
+        kind="success",
+    ))
+
+
+async def revenue_manager_weekly_loop():
+    """Send private weekly revenue-manager reminders."""
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        try:
+            due = await get_revenue_managers_due()
+            for manager in due:
+                guild = bot.get_guild(int(manager.get("guild_id")))
+                manager_user_id = manager.get("manager_user_id")
+                manager_id = manager.get("_id")
+                if not guild or not manager_user_id:
+                    await mark_revenue_manager_weekly_dm(manager_id)
+                    continue
+
+                member = guild.get_member(int(manager_user_id))
+                if member is None:
+                    try:
+                        member = await guild.fetch_member(int(manager_user_id))
+                    except (discord.NotFound, discord.HTTPException):
+                        member = None
+
+                if member is None:
+                    await mark_revenue_manager_weekly_dm(manager_id)
+                    continue
+
+                entries = await get_revenue_entries(guild.id, days=7)
+                entries = await _backfill_missing_payment_values(entries)
+                total = len(entries)
+                calculated_total = sum(float(e.get("payment_value") or 0) for e in entries)
+                uncalculated_count = sum(1 for e in entries if not (isinstance(e.get("payment_value"), (int, float)) and e.get("payment_value") > 0))
+                services = defaultdict(int)
+                payments = defaultdict(int)
+                for entry in entries:
+                    services[str(entry.get("service") or "Unknown")] += 1
+                    payments[str(entry.get("payment") or "Unknown")] += 1
+
+                top_services = sorted(services.items(), key=lambda x: x[1], reverse=True)[:5]
+                top_payments = sorted(payments.items(), key=lambda x: x[1], reverse=True)[:5]
+                service_lines = "\n".join(f"• {name}: `{count}x`" for name, count in top_services) or "• None"
+                payment_lines = "\n".join(f"• {name}: `{count}x`" for name, count in top_payments) or "• None"
+
+                reminder = style_embed(
+                    title="Weekly Revenue Manager Reminder",
+                    description=(
+                        f"Hi {member.mention} — this is your weekly private revenue reminder for **{guild.name}**.\n\n"
+                        "Please review the last 7 days of revenue and **give the moderators a clear summary**. "
+                        "Use `?weekrevenue` for the full weekly report and `?revenuedetails 7` for transaction details.\n\n"
+                        f"**Last 7 Days**\n"
+                        f"• Transactions: `{total}`\n"
+                        f"• Calculated In-Game Revenue: `{format_value(calculated_total)}`\n"
+                        f"• Uncalculated / Non-Ingame: `{uncalculated_count}`\n\n"
+                        f"**Top Services**\n{service_lines}\n\n"
+                        f"**Top Payments**\n{payment_lines}\n\n"
+                        "Once reviewed, please pass the useful numbers, payment breakdown, staff activity, "
+                        "and any concerns to the moderators."
+                    ),
+                    kind="info",
+                )
+                try:
+                    await member.send(embed=reminder)
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    print(f"⚠️ Could not DM revenue manager {member.id} in guild {guild.id}: {exc}")
+                finally:
+                    await mark_revenue_manager_weekly_dm(manager_id)
+
+        except Exception as exc:
+            print(f"⚠️ Revenue manager weekly loop error: {exc}")
+
+        await asyncio.sleep(1800)
+
+
+_revenue_manager_loop_task = None
+
+def start_revenue_manager_weekly_loop():
+    """Start the weekly revenue-manager DM worker exactly once."""
+    global _revenue_manager_loop_task
+    if _revenue_manager_loop_task is None or _revenue_manager_loop_task.done():
+        _revenue_manager_loop_task = asyncio.create_task(revenue_manager_weekly_loop())
+        print("✅ Revenue manager weekly DM loop started")
+
+
+# ==========================================
 #           REVENUE SETUP COMMANDS
 # ==========================================
 
@@ -227,6 +364,20 @@ async def validate_and_record_revenue(message: discord.Message):
 @staff_check(need="mod")
 async def set_revenue_channel_cmd(ctx: commands.Context, channel: discord.TextChannel):
     """Set which channel should be monitored for revenue reports."""
+    manager_id = await get_revenue_manager(ctx.guild.id)
+    if not manager_id:
+        await ctx.send(embed=style_embed(
+            title="Revenue Manager Required",
+            description=(
+                "❌ A Revenue Manager must be assigned before the revenue channel can be set.\n\n"
+                "A moderator should run:\n"
+                "`?makerevenuemanager @user`\n\n"
+                "After that, run `?setrevenuechannel #channel`."
+            ),
+            kind="warn",
+        ))
+        return
+
     success = await set_revenue_channel(ctx.guild.id, channel.id, ctx.author.id)
     
     if not success:
@@ -720,7 +871,8 @@ async def revenue_help(ctx: commands.Context):
     embed.add_field(
         name="⚙️ Admin Commands",
         value=(
-            "`?setrevenuechannel #channel` - Enable tracking in a channel\n"
+            "`?makerevenuemanager @user` - Assign the revenue manager (Mod)\n"
+            "`?setrevenuechannel #channel` - Enable tracking after manager setup\n"
             "`?clearrevenuechannel` - Disable tracking\n"
         ),
         inline=False
