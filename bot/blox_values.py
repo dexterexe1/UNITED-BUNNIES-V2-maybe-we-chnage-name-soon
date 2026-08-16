@@ -12,6 +12,10 @@ from bs4 import BeautifulSoup
 
 SOURCE_URL = "https://bloxfruitsvalues.com/values"
 FRUIT_BASE_URL = "https://bloxfruitsvalues.com/values/fruits/{}"
+GAMEPASS_INDEX_URL = "https://bloxfruitsvalues.com/values/gamepasses"
+GAMEPASS_BASE_URL = "https://bloxfruitsvalues.com/values/gamepasses/{}"
+LIMITED_INDEX_URL = "https://bloxfruitsvalues.com/values/limiteds"
+LIMITED_BASE_URL = "https://bloxfruitsvalues.com/values/limiteds/{}"
 REFRESH_HOURS = max(1, int(os.getenv("BLOX_VALUES_REFRESH_HOURS", "6")))
 
 # Current fruit slugs exposed by Blox Fruits Values. Detail pages are used
@@ -90,6 +94,46 @@ _FALLBACK_VALUES: Dict[str, float] = {
     "blade": 50e3,
     "spin": 7.5e3,
     "rocket": 5e3,
+
+    # Gamepasses / tradeable passes (seed values used if the site is temporarily unavailable).
+    "fruit notifier": 4.7e9,
+    "dark blade": 1.11e9,
+    "mythical scrolls": 1.49e9,
+    "legendary scrolls": 740e6,
+    "+1 fruit storage": 450e6,
+    "2x mastery": 450e6,
+    "2x money": 450e6,
+    "2x boss drops": 300e6,
+    "fast boats": 300e6,
+
+    # Limited / cosmetic items currently known to have numeric values.
+    "fiend yeti": 960e6,
+    "galaxy empyrean kitsune": 14.35e9,
+    "ember west dragon": 8.21e9,
+    "crimson kitsune": 9.9e9,
+    "meme-meme": 6.06e9,
+    "divine portal": 1.9e9,
+    "purple lightning": 6.06e9,
+    "red lightning": 3.51e9,
+    "yellow lightning": 2.07e9,
+    "green lightning": 430e6,
+    "werewolf": 1.05e9,
+    "rose quartz diamond": 370e6,
+    "emerald diamond": 230e6,
+    "topaz diamond": 230e6,
+    "ruby diamond": 170e6,
+    "super spirit pain": 4.02e9,
+    "torment pain": 180e6,
+    "sadness pain": 1.08e9,
+    "frustration pain": 1.11e9,
+    "celestial pain": 1.22e9,
+    "eagle requiem": 170e6,
+    "eagle glacier": 20e6,
+    "eagle matrix": 260e6,
+    "celebration bomb": 10e6,
+    "azura bomb": 560e6,
+    "thermite bomb": 560e6,
+    "nuclear bomb": 560e6,
 }
 
 _cache: Dict[str, float] = dict(_FALLBACK_VALUES)
@@ -116,39 +160,69 @@ def _parse_number(value: str) -> Optional[float]:
     return number * multiplier
 
 
-def _parse_detail_page(html: str, expected_name: str) -> Optional[float]:
+def _parse_detail_page(html: str, fallback_name: str) -> tuple[str, Optional[float]]:
     soup = BeautifulSoup(html, "html.parser")
+    display_name = fallback_name.replace("-", " ").strip()
+    h1 = soup.find("h1")
+    if h1:
+        candidate = " ".join(h1.stripped_strings).strip()
+        if candidate:
+            display_name = candidate
+
     text = " ".join(soup.stripped_strings)
-    # Detail pages are server-rendered. Prefer the first explicit Value number.
     match = re.search(r"\bValue\s+([0-9]+(?:\.[0-9]+)?\s*[KMBT]?)\b", text, re.I)
-    if match:
-        return _parse_number(match.group(1))
-    return None
+    return display_name, (_parse_number(match.group(1)) if match else None)
 
 
-async def _fetch_detail(session: aiohttp.ClientSession, slug: str, sem: asyncio.Semaphore) -> tuple[str, Optional[float]]:
+async def _fetch_detail(session: aiohttp.ClientSession, url: str, fallback_name: str, sem: asyncio.Semaphore) -> tuple[str, Optional[float]]:
     async with sem:
-        url = FRUIT_BASE_URL.format(slug)
         for attempt in range(2):
             try:
                 async with session.get(url) as response:
                     response.raise_for_status()
                     html = await response.text()
-                key = slug.replace("-", " ")
-                return key, _parse_detail_page(html, key)
+                return _parse_detail_page(html, fallback_name)
             except Exception:
                 if attempt == 1:
-                    return slug.replace("-", " "), None
+                    return fallback_name, None
                 await asyncio.sleep(0.5)
-    return slug.replace("-", " "), None
+    return fallback_name, None
+
+
+def _discover_slugs(html: str, category: str) -> dict[str, str]:
+    """Discover detail-page slugs from a category index page."""
+    soup = BeautifulSoup(html, "html.parser")
+    prefix = f"/values/{category}/"
+    found: dict[str, str] = {}
+    for a in soup.find_all("a", href=True):
+        href = str(a.get("href", "")).strip()
+        if not href.startswith(prefix):
+            continue
+        slug = href[len(prefix):].split("?", 1)[0].split("#", 1)[0].strip("/")
+        if not slug or "/" in slug:
+            continue
+        label = " ".join(a.stripped_strings).strip() or slug.replace("-", " ")
+        found[slug] = label
+    return found
+
+
+async def _fetch_category_index(session: aiohttp.ClientSession, url: str, category: str) -> dict[str, str]:
+    try:
+        async with session.get(url) as response:
+            response.raise_for_status()
+            html = await response.text()
+        return _discover_slugs(html, category)
+    except Exception as exc:
+        print(f"⚠️ Could not discover {category}: {exc}")
+        return {}
 
 
 async def refresh_blox_values(force: bool = False) -> Tuple[bool, int, Optional[dt.datetime]]:
-    """Refresh regular fruit values from server-rendered detail pages.
+    """Refresh fruits, gamepasses, and limited/cosmetic items.
 
-    The main /values page is client-rendered, so scraping it with aiohttp can
-    legitimately return zero cards. Detail pages provide server-rendered SEO
-    content and are much more reliable for a bot.
+    Category index pages are used only to discover item detail URLs; actual
+    values are read from the server-rendered detail pages. Fallback values remain
+    available when the public site is temporarily unavailable.
     """
     global _cache, _cache_names, _last_refresh
 
@@ -157,37 +231,57 @@ async def refresh_blox_values(force: bool = False) -> Tuple[bool, int, Optional[
         if not force and _last_refresh and now - _last_refresh < dt.timedelta(hours=REFRESH_HOURS):
             return True, len(_cache), _last_refresh
 
-        timeout = aiohttp.ClientTimeout(total=30)
+        timeout = aiohttp.ClientTimeout(total=45)
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml",
         }
         try:
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-                sem = asyncio.Semaphore(8)
-                results = await asyncio.gather(*(_fetch_detail(session, slug, sem) for slug in FRUIT_SLUGS))
+                sem = asyncio.Semaphore(10)
+                fruit_tasks = [
+                    _fetch_detail(session, FRUIT_BASE_URL.format(slug), slug.replace("-", " "), sem)
+                    for slug in FRUIT_SLUGS
+                ]
+
+                gamepass_slugs = await _fetch_category_index(session, GAMEPASS_INDEX_URL, "gamepasses")
+                limited_slugs = await _fetch_category_index(session, LIMITED_INDEX_URL, "limiteds")
+
+                gamepass_tasks = [
+                    _fetch_detail(session, GAMEPASS_BASE_URL.format(slug), label, sem)
+                    for slug, label in gamepass_slugs.items()
+                ]
+                limited_tasks = [
+                    _fetch_detail(session, LIMITED_BASE_URL.format(slug), label, sem)
+                    for slug, label in limited_slugs.items()
+                ]
+
+                results = await asyncio.gather(*(fruit_tasks + gamepass_tasks + limited_tasks))
 
             parsed: Dict[str, float] = {}
-            for raw_key, value in results:
+            for display_name, value in results:
                 if value is None:
                     continue
-                key = _normalise(raw_key)
+                key = _normalise(display_name)
                 parsed[key] = value
 
-            # Merge successful live values over the last-known fallback/cache.
             merged = dict(_cache)
             merged.update(parsed)
             _cache = merged
             _cache_names = {key: key for key in _cache}
             _last_refresh = now
 
+            print(
+                f"✅ Blox values refresh: {len(parsed)} live items "
+                f"(fruits={len(FRUIT_SLUGS)}, gamepasses={len(gamepass_slugs)}, limiteds={len(limited_slugs)}), "
+                f"{len(_cache)} total cached"
+            )
             success = bool(parsed)
-            print(f"✅ Blox Fruits values refresh: {len(parsed)} live items, {len(_cache)} total cached")
             if not success:
-                print("⚠️ No live fruit detail pages could be parsed; using last-known cache")
+                print("⚠️ No live values parsed; using last-known fallback/cache")
             return success, len(_cache), _last_refresh
         except Exception as exc:
-            print(f"⚠️ Blox Fruits values refresh failed: {exc}; keeping {len(_cache)} cached items")
+            print(f"⚠️ Blox values refresh failed: {exc}; keeping {len(_cache)} cached items")
             return False, len(_cache), _last_refresh
 
 
@@ -218,6 +312,18 @@ async def lookup_payment(payment: str) -> Tuple[Optional[float], Optional[str], 
         value = _cache.get(alias)
         if value is not None and not alias.startswith("permanent "):
             return value, _cache_names.get(alias, alias), _last_refresh
+
+    # Common staff wording for gamepasses/limiteds.
+    variants = {
+        key.replace("x2 ", "2x "),
+        key.replace(" 2x", " x2"),
+        re.sub(r"\b(?:gamepass|game pass|limited|skin|cosmetic|item)\b", " ", key),
+    }
+    variants = {_normalise(v) for v in variants if v and _normalise(v) != key}
+    for variant in variants:
+        value = _cache.get(variant)
+        if value is not None:
+            return value, _cache_names.get(variant, variant), _last_refresh
 
     return None, None, _last_refresh
 
