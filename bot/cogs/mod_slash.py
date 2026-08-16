@@ -101,6 +101,24 @@ async def mod_help_slash(interaction: discord.Interaction):
     )
     
     embed.add_field(
+        name="`🤖 Premium AI Manager`",
+        value=(
+            "• `?ai <question>` / `/ai` — Ask the server-specific AI about prices, rules, services, quotes, and staff guidance.\n"
+            "• `?aihelp` — Full AI command guide and access status.\n"
+            "• `?aiimportprice <title> <data>` — Save a pricing sheet for this server.\n"
+            "• `?aiimportrules <title> <rules>` — Save rules/policies for this server.\n"
+            "• `?aiprice set/list/remove/clear` — Manage structured prices.\n"
+            "• `?airule add/list/remove/clear` — Manage structured rules.\n"
+            "• `?aiservice add/list/remove/clear` — Manage the service catalog.\n"
+            "• `?aiconfig` / `?aiconfig manager @role` — View AI settings or choose the AI Manager role.\n"
+            "• `?aiclear` — Clear all AI Manager data for this server.\n"
+            "• **AI Manager Role:** set with `?aiconfig manager @role`; when not set, normal staff permissions are used.\n"
+            "• AI commands are available only when the **bot owner has enabled AI for this server**. AI non-prefix also requires the bot owner to enable non-prefix.\n"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
         name="`🎭 Role Information`", 
         value=(
             "• `?roles` — List all server roles.\n"

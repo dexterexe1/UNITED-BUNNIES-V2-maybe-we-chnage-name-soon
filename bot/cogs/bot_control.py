@@ -137,7 +137,7 @@ def _is_developer_command(command: commands.Command) -> bool:
     # Owner-restricted commands in this project call is_bot_owner().
     # This keeps the help menu automatically synchronized with registered
     # commands instead of maintaining a second hard-coded command list.
-    return "is_bot_owner" in code.co_names
+    return "is_bot_owner" in code.co_names or "_is_owner" in code.co_names
 
 
 def _developer_command_category(command: commands.Command) -> str:
@@ -152,6 +152,8 @@ def _developer_command_category(command: commands.Command) -> str:
         return "💰 Revenue"
     if "prefix" in name:
         return "⚙️ Bot Configuration"
+    if name in {"provideai", "disableai", "providenonprefix", "disablenonprefix", "aistatus", "ailist"}:
+        return "🤖 Premium AI Management"
     return "🔧 Other Developer Tools"
 
 
@@ -196,6 +198,7 @@ async def developer_help_cmd(ctx: commands.Context):
         "🛠️ Command Management",
         "💰 Revenue",
         "⚙️ Bot Configuration",
+        "🤖 Premium AI Management",
         "🔧 Other Developer Tools",
     ]
 

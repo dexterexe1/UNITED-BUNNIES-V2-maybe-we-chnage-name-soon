@@ -55,6 +55,10 @@ def _category_for(command_name: str) -> str:
         "togglenoprefix": "👑 Developer", "noprefixmode": "👑 Developer",
         "botstatus": "👑 Developer", "botinfo": "👑 Developer",
         "commands": "📚 General", "commandsinfo": "📚 General",
+        "ai": "🤖 AI Manager", "aihelp": "🤖 AI Manager", "aiimportprice": "🤖 AI Manager", "aiimportrules": "🤖 AI Manager",
+        "aiprice": "🤖 AI Manager", "airule": "🤖 AI Manager", "aiservice": "🤖 AI Manager", "aiconfig": "🤖 AI Manager", "aiclear": "🤖 AI Manager",
+        "provideai": "👑 Developer", "disableai": "👑 Developer", "providenonprefix": "👑 Developer", "disablenonprefix": "👑 Developer",
+        "aistatus": "👑 Developer", "ailist": "👑 Developer",
     }
     return mapping.get(root, "📦 Other")
 
