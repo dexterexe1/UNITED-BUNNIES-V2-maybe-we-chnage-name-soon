@@ -26,59 +26,92 @@ from bot.revenue_database import (
     get_revenue_managers_due, mark_revenue_manager_weekly_dm
 )
 
-# Expected format (FLEXIBLE):
-# User : @username OR User : plain_name
+# Expected format (all fields required for new entries):
+# Client : @username OR customer_name
 # Service : service_name (your internal service name)
 # Payment : payment/item received (Blox Fruits value item OR non-ingame payment)
-# Paid to : @staff_member OR Paid to : plain_name
-# Done by : @helper OR helper_name (OPTIONAL - for team sales)
+# Paid to : @staff_member OR plain_name
+# Done by : @helper OR helper_name (REQUIRED)
+# Done at : date (e.g. 17 Aug 2026, 2026-08-17, 17/08/2026)
 
-# Pattern matches both @mentions and plain text names
 REVENUE_PATTERN = re.compile(
-    r"User\s*:\s*(?:<@!?(\d+)>|([^\n]+?))(?:\n|$).*?"
+    r"Client\s*:\s*(?:<@!?(\d+)>|([^\n]+?))(?:\n|$).*?"
     r"Service\s*:\s*([^\n]+?)(?:\n|$).*?"
     r"Payment\s*:\s*([^\n]+?)(?:\n|$).*?"
     r"Paid\s*to\s*:\s*(?:<@!?(\d+)>|([^\n]+?))(?:\n|$).*?"
-    r"(?:Done\s*by\s*:\s*(?:<@!?(\d+)>|([^\n]+?))(?:\n|$))?",
+    r"Done\s*by\s*:\s*(?:<@!?(\d+)>|([^\n]+?))(?:\n|$).*?"
+    r"Done\s*at\s*:\s*([^\n]+?)(?:\n|$)",
     re.IGNORECASE | re.DOTALL
 )
 
 CORRECT_FORMAT = """
-**Correct Format:**
+**Required Revenue Format:**
 ```
-User : @username OR customer_name
+Client : @username OR customer_name
 Service : service_name (e.g., trials, raids, leveling)
 Payment : payment/item (e.g., Tiger, Dough, 2x Money, Red Lightning, Cashapp)
 Paid to : @staff OR staff_name
-Done by : @helper OR helper_name (OPTIONAL)
+Done by : @helper OR helper_name
+Done at : date (e.g., 17 Aug 2026)
 ```
+
+**Important:** `Done by` and `Done at` are required. If the service has not been completed yet, finish it first and then submit the revenue entry.
 
 **Examples:**
 ```
-User : @HINATA
+Client : @HINATA
 Service : trials/raids
 Payment : Leopard
 Paid to : @Roger
-
+Done by : @Detrox
+Done at : 17 Aug 2026
 ```
 
 ```
-User : @HINATA
-Service : raids
-Payment : 2x Money
-Paid to : @Roger
-```
-
-```
-User : HINATA
+Client : HINATA
 Service : raids
 Payment : Cashapp
 Paid to : Roger
 Done by : Detrox
+Done at : 17/08/2026
 ```
 
 **Calculable Blox Fruits examples:** `Tiger`, `Dough`, `Leopard`, `Kitsune`, `Dragon`, `2x Money`, `2x Mastery`, `Fast Boats`, `Red Lightning`, `Purple Lightning`, `Werewolf`
 """
+
+DATE_FORMATS = (
+    "%d %b %Y", "%d %B %Y", "%d/%m/%Y", "%d-%m-%Y",
+    "%Y-%m-%d", "%Y/%m/%d", "%d.%m.%Y",
+)
+
+def _parse_done_at(raw: str):
+    value = (raw or "").strip()
+    if not value:
+        return None
+    if value.lower() in {"today", "now"}:
+        now = datetime.datetime.now(UTC)
+        return now
+    if value.lower() == "yesterday":
+        return datetime.datetime.now(UTC) - datetime.timedelta(days=1)
+    for fmt in DATE_FORMATS:
+        try:
+            parsed = datetime.datetime.strptime(value, fmt)
+            return parsed.replace(tzinfo=UTC)
+        except ValueError:
+            pass
+    return None
+
+def _find_member_by_name(guild: discord.Guild, raw: str):
+    target = (raw or "").strip().lstrip("@").lower()
+    if not target:
+        return None
+    for member in guild.members:
+        candidates = {
+            str(member.id), member.display_name.lower(), member.name.lower(),
+        }
+        if target in candidates:
+            return member
+    return None
 
 
 async def validate_and_record_revenue(message: discord.Message):
@@ -119,47 +152,96 @@ async def validate_and_record_revenue(message: discord.Message):
         return True
     
     # Extract data (supports both @mentions and plain names)
-    user_id_str = match.group(1)  # @mention ID or None
-    user_name = match.group(2)     # plain name or None
+    client_id_str = match.group(1)
+    client_name = match.group(2)
     service = match.group(3).strip()
     payment_method = match.group(4).strip()
-    paid_to_id_str = match.group(5)  # @mention ID or None
-    paid_to_name = match.group(6)    # plain name or None
-    done_by_id_str = match.group(7)  # @mention ID or None (OPTIONAL)
-    done_by_name = match.group(8)    # plain name or None (OPTIONAL)
-    
-    # Determine user (prefer @mention, fallback to name)
-    if user_id_str:
-        user_id = int(user_id_str)
-        user = message.guild.get_member(user_id)
-        user_display = user.display_name if user else f"User {user_id}"
+    paid_to_id_str = match.group(5)
+    paid_to_name = match.group(6)
+    done_by_id_str = match.group(7)
+    done_by_name = match.group(8)
+    done_at_raw = match.group(9).strip()
+
+    # Required field checks
+    missing = []
+    if not (service and service.strip()):
+        missing.append("Service")
+    if not (payment_method and payment_method.strip()):
+        missing.append("Payment")
+    if not (done_by_id_str or (done_by_name and done_by_name.strip())):
+        missing.append("Done by")
+    if not done_at_raw:
+        missing.append("Done at")
+    if missing:
+        try:
+            warning = await message.reply(
+                f"⚠️ {message.author.mention} **Revenue entry incomplete.**\n\n"
+                f"Missing required field(s): **{', '.join(missing)}**\n\n"
+                "The service must be completed first. Please add the staff member who actually completed it in `Done by` and the completion date in `Done at`.\n\n"
+                f"{CORRECT_FORMAT}",
+                mention_author=True
+            )
+            await message.delete()
+            await warning.delete(delay=15)
+        except Exception as e:
+            print(f"⚠️ Error sending incomplete revenue message: {e}")
+        return True
+
+    done_at = _parse_done_at(done_at_raw)
+    if done_at is None:
+        try:
+            warning = await message.reply(
+                f"❌ {message.author.mention} **Invalid Done at date.**\n"
+                "Use a date like `17 Aug 2026`, `17/08/2026`, or `2026-08-17`.",
+                mention_author=True
+            )
+            await message.delete()
+            await warning.delete(delay=15)
+        except Exception as e:
+            print(f"⚠️ Error sending invalid-date message: {e}")
+        return True
+
+    # Determine client (prefer @mention, fallback to plain name)
+    if client_id_str:
+        client_id = int(client_id_str)
+        client = message.guild.get_member(client_id)
+        client_display = client.display_name if client else f"User {client_id}"
     else:
-        user_name = user_name.strip()
-        user_id = 0  # Placeholder for plain name
-        user_display = user_name
-    
-    # Determine paid_to (prefer @mention, fallback to name)
+        client_display = client_name.strip()
+        client_id = 0
+
+    # Determine paid_to (prefer @mention, fallback to plain name)
     if paid_to_id_str:
         paid_to_id = int(paid_to_id_str)
         paid_to = message.guild.get_member(paid_to_id)
         paid_to_display = paid_to.display_name if paid_to else f"User {paid_to_id}"
     else:
-        paid_to_name = paid_to_name.strip()
-        paid_to_id = 0  # Placeholder for plain name
-        paid_to_display = paid_to_name
-    
-    # Determine done_by (OPTIONAL - prefer @mention, fallback to name)
-    done_by_id = 0
-    done_by_display = None
+        paid_to_display = paid_to_name.strip()
+        paid_to_id = 0
+
+    # Done by is REQUIRED. Resolve to a real guild member when possible.
     if done_by_id_str:
         done_by_id = int(done_by_id_str)
         done_by = message.guild.get_member(done_by_id)
-        done_by_display = done_by.display_name if done_by else f"User {done_by_id}"
-    elif done_by_name:
-        done_by_name = done_by_name.strip()
-        done_by_id = 0
-        done_by_display = done_by_name
-    
+    else:
+        done_by = _find_member_by_name(message.guild, done_by_name)
+        done_by_id = done_by.id if done_by else 0
+
+    if not done_by:
+        try:
+            warning = await message.reply(
+                f"❌ {message.author.mention} **Done by must identify a real server member.**\n"
+                "Use a mention such as `Done by : @Helper` so the service completer is recorded correctly.\n\n"
+                "If the service is not finished yet, complete it first before submitting the revenue entry.",
+                mention_author=True
+            )
+            await message.delete()
+            await warning.delete(delay=15)
+        except Exception as e:
+            print(f"⚠️ Error sending done-by validation message: {e}")
+        return True
+
+    done_by_display = done_by.display_name
     # Only PAYMENT is checked against Blox Fruits Values. SERVICE is never used
     # for value calculation. Unknown/non-ingame payments are intentionally
     # left uncalculated; spelling mistakes are not fuzzy-matched.
@@ -176,19 +258,20 @@ async def validate_and_record_revenue(message: discord.Message):
     try:
         await add_revenue_entry(
             guild_id=message.guild.id,
-            user_name=user_display,
+            user_name=client_display,
             service=service,
             payment=payment_method,
             paid_to=paid_to_display,
             done_by_id=done_by_id,
             done_by_name=done_by_display,
+            done_at=done_at,
             message_id=message.id,
             channel_id=message.channel.id,
             payment_value=payment_value,
             payment_value_name=payment_value_name,
             payment_value_checked_at=payment_value_checked_at
         )
-        print(f"✅ Revenue entry recorded: {user_display} -> {paid_to_display} ({service}) | payment={payment_method} | value={payment_value}")
+        print(f"✅ Revenue entry recorded: client={client_display} service={service} payment={payment_method} paid_to={paid_to_display} done_by={done_by_display} done_at={done_at} value={payment_value}")
         
         # React to confirm
         await message.add_reaction("✅")
@@ -662,224 +745,165 @@ async def generate_revenue_report(ctx: commands.Context, days: int = None, perio
     await ctx.send(embed=embed)
 
 
-@bot.hybrid_command(name="revenuedetails", aliases=["revdetails"], help="Show detailed revenue entries (last 10)")
+@bot.hybrid_command(name="revenuedetails", aliases=["revdetails"], help="Show detailed revenue entries with client, service, payment, paid-to, done-by, date, and value")
 @staff_check(need="mod")
 async def revenue_details(ctx: commands.Context, days: int = 7):
-    """Show detailed list of recent revenue entries."""
-    
-    entries = await get_revenue_entries(ctx.guild.id, days=days)
-    
-    if not entries:
-        embed = style_embed(
-            title="Revenue Details",
-            description=f"No revenue entries found in the last {days} days.",
-            kind="info"
-        )
-        await ctx.send(embed=embed)
+    """Show detailed recent revenue entries with all stored fields."""
+    if days < 1 or days > 3650:
+        await ctx.send(embed=style_embed(title="Revenue Details", description="❌ Days must be between 1 and 3650.", kind="error"))
         return
-    
-    # Show last 10 entries
-    entries = entries[:10]
-    
+
+    entries = await get_revenue_entries(ctx.guild.id, days=days)
+    entries = await _backfill_missing_payment_values(entries)
+    if not entries:
+        await ctx.send(embed=style_embed(title="Revenue Details", description=f"No revenue entries found in the last {days} days.", kind="info"))
+        return
+
+    entries = entries[:25]
     description = f"**Last {len(entries)} Entries (Past {days} Days)**\n\n"
-    
     for entry in entries:
-        # Extract fields from dictionary
-        user_name = entry.get("user_name", "Unknown")
+        client = entry.get("client_name") or entry.get("user_name") or "Unknown"
         service = entry.get("service", "Unknown")
-        payment_method = entry.get("payment", "Unknown")
-        paid_to_name = entry.get("paid_to", "Unknown")
-        done_by_name = entry.get("done_by_name")
-        timestamp = entry.get("timestamp")
-        
-        # Add "done by" if exists
-        staff_display = paid_to_name
-        if done_by_name and done_by_name.strip():
-            staff_display = f"{paid_to_name}, {done_by_name}"
-        
-        # Parse date
-        try:
-            if isinstance(timestamp, datetime.datetime):
-                date_str = timestamp.strftime("%m/%d %H:%M")
-            else:
-                date_str = "Unknown"
-        except Exception:
-            date_str = "Unknown"
-        
-        description += f"**{date_str}** • {service}\n"
-        description += f"  {EMOJI_BULLET} User: {user_name} → Staff: {staff_display}\n"
-        payment_value = entry.get("payment_value")
-        if isinstance(payment_value, (int, float)) and payment_value > 0:
-            description += f"  {EMOJI_BULLET} Payment: {payment_method} → `{format_value(float(payment_value))}`\n"
+        payment = entry.get("payment", "Unknown")
+        paid_to = entry.get("paid_to", "Unknown")
+        done_by = entry.get("done_by_name") or "Not recorded (legacy entry)"
+        done_at = entry.get("done_at") or entry.get("timestamp")
+        if isinstance(done_at, datetime.datetime):
+            if done_at.tzinfo is None:
+                done_at = done_at.replace(tzinfo=UTC)
+            date_str = done_at.strftime("%d %b %Y")
         else:
-            description += f"  {EMOJI_BULLET} Payment: {payment_method} → ⚠️ Uncalculated / Non-Ingame Payment\n"
-        description += "\n"
-    
-    embed = style_embed(
-        title=f"{BRAND_EMOJI} Revenue Details",
-        description=description,
-        color=BRAND_COLOR,
-        kind="info"
-    )
-    
+            date_str = "Unknown"
+        value = entry.get("payment_value")
+        value_text = format_value(float(value)) if isinstance(value, (int, float)) and value > 0 else "Uncalculated / Non-Ingame"
+
+        description += (
+            f"**{date_str}** • **{service}**\n"
+            f"  {EMOJI_BULLET} **Client:** {client}\n"
+            f"  {EMOJI_BULLET} **Payment:** {payment}\n"
+            f"  {EMOJI_BULLET} **Payment Value:** `{value_text}`\n"
+            f"  {EMOJI_BULLET} **Paid to:** {paid_to}\n"
+            f"  {EMOJI_BULLET} **Done by:** {done_by}\n"
+            f"  {EMOJI_BULLET} **Done at:** `{date_str}`\n\n"
+        )
+
+    if len(entries) < len(await get_revenue_entries(ctx.guild.id, days=days)):
+        description += "_Showing the latest 25 entries._\n"
+
+    embed = style_embed(title=f"{BRAND_EMOJI} Revenue Details", description=description, color=BRAND_COLOR, kind="info")
     embed.set_footer(text="United Bunnies Revenue System")
-    
     await ctx.send(embed=embed)
 
 
-@bot.hybrid_command(name="revenuevia", aliases=["staffrevenue", "revvia"], help="Show revenue for a specific staff member")
+@bot.hybrid_command(name="revenuevia", aliases=["staffrevenue", "revvia"], help="Show detailed revenue for a specific staff member")
 @staff_check(need="mod")
 async def revenue_via_staff(ctx: commands.Context, staff_name: str, days: int = 30):
-    """Show all services provided by a specific staff member."""
-    
-    # Get all entries
-    all_entries = await get_revenue_entries(ctx.guild.id, days=days)
-    
-    if not all_entries:
-        embed = style_embed(
-            title="No Revenue Data",
-            description=f"No revenue entries found in the last {days} days.",
-            kind="info"
-        )
-        await ctx.send(embed=embed)
-        return
-    
-    # Clean staff name (remove @ if present)
+    """Show revenue where a staff member was the payment recipient or service completer."""
     staff_name = staff_name.strip().lstrip('@')
-    
-    # Filter entries for this staff member
-    staff_entries = []
-    matched_staff_name = None
-    
-    for entry in all_entries:
-        # Extract fields from dictionary
-        user_name = entry.get("user_name", "Unknown")
-        service = entry.get("service", "Unknown")
-        payment_method = entry.get("payment", "Unknown")
-        paid_to_name = entry.get("paid_to", "Unknown")
-        done_by_name = entry.get("done_by_name")
-        timestamp = entry.get("timestamp")
-        
-        # Check if this matches our search (case-insensitive)
-        # Check both "paid_to" and "done_by" fields
-        staff_match = paid_to_name and staff_name.lower() in paid_to_name.lower()
-        done_by_match = done_by_name and staff_name.lower() in done_by_name.lower()
-        
-        if staff_match or done_by_match:
-            staff_entries.append({
-                "user_name": user_name,
-                "service": service,
-                "payment": payment_method,
-                "timestamp": timestamp
-            })
-            if not matched_staff_name:
-                matched_staff_name = paid_to_name
-    
-    if not staff_entries:
-        embed = style_embed(
-            title="No Results",
-            description=f"No revenue entries found for staff member matching **{staff_name}**.",
-            kind="info"
-        )
-        await ctx.send(embed=embed)
+    if not staff_name:
+        await ctx.send(embed=style_embed(title="Revenue Staff Report", description="❌ Provide a staff member name.", kind="error"))
         return
-    
-    # Analyze the data
-    services_count = defaultdict(int)
-    payments_count = defaultdict(int)
-    clients = set()
-    
-    for entry in staff_entries:
-        user_name = entry["user_name"]
-        service = entry["service"]
-        payment_method = entry["payment"]
-        
-        services_count[service] += 1
-        payments_count[payment_method] += 1
-        clients.add(user_name)
-    
-    total_sales = len(staff_entries)
-    
-    # Build the report
-    description = f"**Staff Member:** {matched_staff_name}\n"
-    description += f"**Period:** Last {days} days\n"
-    description += f"**Total Tickets:** `{total_sales}`\n"
-    description += f"**Unique Clients:** `{len(clients)}`\n\n"
-    
-    # Services provided (sorted by count)
-    description += "**Services:**\n"
-    sorted_services = sorted(services_count.items(), key=lambda x: x[1], reverse=True)
-    for service, count in sorted_services[:15]:  # Top 15
-        percentage = (count/total_sales*100)
-        description += f"   • {service}: `{count}x` ({percentage:.1f}%)\n"
-    
-    if len(sorted_services) > 15:
-        remaining = sum(s[1] for s in sorted_services[15:])
-        description += f"   • ... and {len(sorted_services) - 15} more (`{remaining}x`)\n"
-    
-    description += "\n"
-    
-    # Payment methods breakdown
-    description += "**💳 Payments:**\n"
-    sorted_payments = sorted(payments_count.items(), key=lambda x: x[1], reverse=True)
-    for payment, count in sorted_payments:
-        percentage = (count/total_sales*100)
-        description += f"   • {payment}: `{count}x` ({percentage:.1f}%)\n"
-    
-    embed = style_embed(
-        title=f"{BRAND_EMOJI} Staff Revenue Report",
-        description=description,
-        color=BRAND_COLOR,
-        kind="info"
+
+    entries = await get_revenue_entries(ctx.guild.id, days=days, staff_name=staff_name)
+    entries = await _backfill_missing_payment_values(entries)
+    if not entries:
+        await ctx.send(embed=style_embed(title="No Results", description=f"No revenue entries found for **{staff_name}** in the last {days} days.", kind="info"))
+        return
+
+    total = len(entries)
+    calculated_total = sum(float(e.get("payment_value") or 0) for e in entries)
+    clients = {str(e.get("client_name") or e.get("user_name") or "Unknown") for e in entries}
+    services = defaultdict(int)
+    payments = defaultdict(int)
+    done_by_count = defaultdict(int)
+    paid_to_count = defaultdict(int)
+
+    for e in entries:
+        services[str(e.get("service") or "Unknown")] += 1
+        payments[str(e.get("payment") or "Unknown")] += 1
+        paid_to_count[str(e.get("paid_to") or "Unknown")] += 1
+        done_by_count[str(e.get("done_by_name") or "Unknown")] += 1
+
+    description = (
+        f"**Staff:** `{staff_name}`\n"
+        f"**Period:** Last `{days}` days\n"
+        f"**Total Transactions:** `{total}`\n"
+        f"**Unique Clients:** `{len(clients)}`\n"
+        f"**Calculated Revenue:** `{format_value(calculated_total)}`\n\n"
+        "**Services:**\n"
     )
-    
-    embed.set_footer(text=f"United Bunnies Revenue System • Use ?revenuevia \"staff name\" <days>")
-    
+    for service, count in sorted(services.items(), key=lambda x: x[1], reverse=True)[:15]:
+        description += f"• {service}: `{count}x`\n"
+    description += "\n**Payments:**\n"
+    for payment, count in sorted(payments.items(), key=lambda x: x[1], reverse=True)[:15]:
+        description += f"• {payment}: `{count}x`\n"
+
+    description += "\n**Recent Transactions:**\n"
+    for e in entries[:10]:
+        client = e.get("client_name") or e.get("user_name") or "Unknown"
+        service = e.get("service") or "Unknown"
+        payment = e.get("payment") or "Unknown"
+        done_by = e.get("done_by_name") or "Unknown"
+        paid_to = e.get("paid_to") or "Unknown"
+        dt = e.get("done_at") or e.get("timestamp")
+        date_str = dt.strftime("%d %b %Y") if isinstance(dt, datetime.datetime) else "Unknown"
+        description += f"• `{date_str}` — {client} — {service} — {payment} — paid to {paid_to} — done by {done_by}\n"
+
+    embed = style_embed(title=f"{BRAND_EMOJI} Staff Revenue Report", description=description, color=BRAND_COLOR, kind="info")
+    embed.set_footer(text=f"United Bunnies Revenue System • ?revenuevia \"staff name\" {days}")
     await ctx.send(embed=embed)
 
 
-@bot.hybrid_command(name="revenuehelp", aliases=["revhelp"], help="Show revenue system help")
+@bot.hybrid_command(name="revenuehelp", aliases=["revhelp"], help="Show revenue system commands and reporting details")
 async def revenue_help(ctx: commands.Context):
-    """Display help for the revenue tracking system."""
-    
+    """Display the complete revenue system help."""
     embed = style_embed(
         title=f"{BRAND_EMOJI} Revenue Tracking System",
-        description="Automatically track service revenue and generate reports.",
+        description=(
+            "Track every completed service with client, service, payment, paid-to, done-by, "
+            "completion date, and calculated payment value."
+        ),
         color=BRAND_COLOR,
         kind="info"
     )
-    
+
+    embed.add_field(name="📝 Revenue Entry — ALL FIELDS REQUIRED", value=CORRECT_FORMAT, inline=False)
     embed.add_field(
-        name="📝 How to Report Revenue",
-        value=CORRECT_FORMAT,
-        inline=False
-    )
-    
-    embed.add_field(
-        name="📊 Staff Commands",
+        name="📊 Report Commands",
         value=(
-            "`?weekrevenue` - Weekly revenue summary\n"
-            "`?monthrevenue` - Monthly revenue summary\n"
-            "`?todayrevenue` - Today's revenue\n"
-            "`?allrevenue` - All-time revenue (Admin only)\n"
-            "`?revenuedetails [days]` - Detailed transaction list\n"
-            "`?revenuevia \"staff name\" [days]` - Specific staff's sales\n"
-        ),
-        inline=False
+            "`?todayrevenue` / `/todayrevenue` — today's totals and breakdown\n"
+            "`?weekrevenue` / `/weekrevenue` — last 7 days\n"
+            "`?monthrevenue` / `/monthrevenue` — last 30 days\n"
+            "`?allrevenue` / `/allrevenue` — all-time report (Admin)\n"
+            "`?revenuedetails [days]` / `/revenuedetails` — full transaction details (client, service, payment, value, paid to, done by, done at)\n"
+            "`?revenuevia <staff> [days]` / `/revenuevia` — staff-specific totals + recent transactions\n"
+        ), inline=False
     )
-    
     embed.add_field(
-        name="⚙️ Admin Commands",
+        name="👤 Revenue Manager",
         value=(
-            "`?makerevenuemanager @user` - Assign the revenue manager (Mod)\n"
-            "`?setrevenuechannel #channel` - Enable tracking after manager setup\n"
-            "`?clearrevenuechannel` - Disable tracking\n"
-        ),
-        inline=False
+            "`?makerevenuemanager @user` / `/makerevenuemanager` — assign the weekly revenue manager\n"
+            "`?setrevenuechannel #channel` / `/setrevenuechannel` — enable revenue tracking after manager setup\n"
+            "`?clearrevenuechannel` / `/clearrevenuechannel` — disable tracking\n"
+            "The Revenue Manager receives a private weekly reminder to review totals and send the moderators a summary.\n"
+        ), inline=False
     )
-    
+    embed.add_field(
+        name="🛠️ Admin",
+        value=(
+            "`?clearrevenue` / `/clearrevenue` — delete this server's revenue history (Admin only)\n"
+            "`?refreshbloxvalues` / `/refreshbloxvalues` — refresh Blox Fruits values (Mod)\n"
+        ), inline=False
+    )
+    embed.add_field(
+        name="⚠️ Important",
+        value=(
+            "`Done by` is mandatory. If the service is not finished yet, **finish it first** and then record the staff member who completed it.\n"
+            "`Done at` is mandatory and records the service completion date.\n"
+            "Payment value is calculated from the payment/item; non-ingame payments remain uncalculated."
+        ), inline=False
+    )
     embed.set_footer(text="United Bunnies Revenue System")
-    
     await ctx.send(embed=embed)
 
 
