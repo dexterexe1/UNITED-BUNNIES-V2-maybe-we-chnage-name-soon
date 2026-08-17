@@ -9,6 +9,7 @@ import discord
 from discord.ext import commands
 import discord.app_commands as app_commands
 import datetime
+import os
 import asyncio
 import random
 import re
