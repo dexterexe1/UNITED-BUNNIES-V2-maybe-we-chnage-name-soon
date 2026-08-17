@@ -738,3 +738,29 @@ async def on_message(message):
 
     # Fallback: ensure any remaining prefix commands still process
     await bot.process_commands(message)
+
+
+# --- PROCESS ENTRY POINT ---
+def _load_token() -> str:
+    raw = os.getenv("DISCORD_TOKEN") or os.getenv("BOT_TOKEN")
+    if not raw:
+        raise RuntimeError("DISCORD_TOKEN or BOT_TOKEN is not configured")
+    token = raw.strip()
+    if (token.startswith("\"") and token.endswith("\"")) or (token.startswith("'") and token.endswith("'")):
+        token = token[1:-1].strip()
+    if token.lower().startswith("bot "):
+        token = token[4:].strip()
+    return token
+
+
+def main():
+    token = _load_token()
+    port = os.getenv("PORT")
+    if port:
+        try:
+            from threading import Thread
+            from bot.status import run_server
+            Thread(target=run_server, daemon=True).start()
+        except Exception as exc:
+            print(f"⚠️ Keepalive server not started: {exc}")
+    bot.run(token)
