@@ -401,9 +401,10 @@ async def revenue_manager_weekly_loop():
                         f"**Last 7 Days**\n"
                         f"• Transactions: `{total}`\n"
                         f"• Calculated In-Game Revenue: `{format_value(calculated_total)}`\n"
-                        f"• Uncalculated / Non-Ingame: `{uncalculated_count}`\n\n"
+                        f"• Other Payments (Robux/Cashapp/etc.): `{uncalculated_count}`\n\n"
                         f"**Top Services**\n{service_lines}\n\n"
                         f"**Top Payments**\n{payment_lines}\n\n"
+                        "Fields recorded per entry: **Client · Service · Payment · Done by · Paid to · Done at**\n\n"
                         "Once reviewed, please pass the useful numbers, payment breakdown, staff activity, "
                         "and any concerns to the moderators."
                     ),
@@ -591,12 +592,11 @@ async def _backfill_missing_payment_values(entries):
 
 
 async def generate_revenue_report(ctx: commands.Context, days: int = None, period_name: str = "Revenue"):
-    """Generate a formatted revenue report grouped by staff and showing services provided."""
-    
-    # Get all entries
+    """Generate a formatted revenue report grouped by service completer (Done by)."""
+
     entries = await get_revenue_entries(ctx.guild.id, days=days)
     entries = await _backfill_missing_payment_values(entries)
-    
+
     if not entries:
         embed = style_embed(
             title=f"{period_name} Revenue Report",
@@ -605,16 +605,13 @@ async def generate_revenue_report(ctx: commands.Context, days: int = None, perio
         )
         await ctx.send(embed=embed)
         return
-    
-    # Group by staff member, then by service
-    # Separate: single staff vs multi-staff (with done_by)
-    single_staff_data = defaultdict(lambda: {'services': defaultdict(int), 'payments': defaultdict(int)})
-    multi_staff_data = defaultdict(lambda: {'services': defaultdict(int), 'payments': defaultdict(int)})
+
     total_entries = len(entries)
     calculated_total = sum(float(e.get("payment_value") or 0) for e in entries)
-    uncalculated = defaultdict(int)
-    calculated_payments = defaultdict(lambda: {"count": 0, "value": 0.0})
 
+    # Split payments into calculated (BF items) vs uncalculated (Robux, Cashapp, etc.)
+    calculated_payments = defaultdict(lambda: {"count": 0, "value": 0.0})
+    uncalculated = defaultdict(int)
     for entry in entries:
         payment = entry.get("payment", "Unknown")
         value = entry.get("payment_value")
@@ -623,118 +620,74 @@ async def generate_revenue_report(ctx: commands.Context, days: int = None, perio
             calculated_payments[payment]["value"] += float(value)
         else:
             uncalculated[payment] += 1
-    
+
+    # Group by Done by (service completer) — this is what we track per-staff
+    staff_data = defaultdict(lambda: {
+        'services': defaultdict(int),
+        'payments': defaultdict(int),
+        'paid_to': defaultdict(int),
+    })
     for entry in entries:
-        # Extract fields from dictionary
-        user_name = entry.get("user_name")
-        service = entry.get("service", "Unknown")
-        payment_method = entry.get("payment", "Unknown")
-        paid_to_name = entry.get("paid_to", "Unknown")
-        done_by_name = entry.get("done_by_name")
-        
-        # Staff key is just the paid_to name
-        staff_key = paid_to_name
-        
-        # Check if multi-staff (done_by exists)
-        if done_by_name and done_by_name.strip():
-            # Multi-staff service - create combined key
-            multi_key = f"{staff_key} & {done_by_name}"
-            multi_staff_data[multi_key]['services'][service] += 1
-            multi_staff_data[multi_key]['payments'][payment_method] += 1
-        else:
-            # Single staff service
-            single_staff_data[staff_key]['services'][service] += 1
-            single_staff_data[staff_key]['payments'][payment_method] += 1
-    
-    # Build the report
-    description = f"📊 **Total Transactions:** {total_entries}\n"
+        done_by = entry.get("done_by_name") or "Unknown"
+        service  = entry.get("service", "Unknown")
+        payment  = entry.get("payment", "Unknown")
+        paid_to  = entry.get("paid_to", "Unknown")
+        staff_data[done_by]['services'][service] += 1
+        staff_data[done_by]['payments'][payment] += 1
+        staff_data[done_by]['paid_to'][paid_to]  += 1
+
+    # ── Header ──────────────────────────────────────────────────────────────
+    description  = f"📊 **Total Transactions:** {total_entries}\n"
     description += f"💰 **Calculated In-Game Revenue:** `{format_value(calculated_total)}`\n\n"
-    description += "**💰 Calculated Payments:**\n"
-    for payment, data in sorted(calculated_payments.items(), key=lambda item: item[1]["value"], reverse=True):
+
+    description += "**💰 Calculated Payments (BF Items):**\n"
+    for payment, data in sorted(calculated_payments.items(), key=lambda x: x[1]["value"], reverse=True):
         description += f"   • {payment}: `{data['count']}x` → `{format_value(data['value'])}`\n"
     if not calculated_payments:
         description += "   • None\n"
 
-    description += "\n**⚠️ Uncalculated / Non-Ingame Payment:**\n"
+    description += "\n**⚠️ Other Payments (Robux / Cashapp / Non-Ingame):**\n"
     if uncalculated:
-        for payment, count in sorted(uncalculated.items(), key=lambda item: item[1], reverse=True):
+        for payment, count in sorted(uncalculated.items(), key=lambda x: x[1], reverse=True):
             description += f"   • {payment}: `{count}x`\n"
     else:
         description += "   • None\n"
 
     description += "\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    # Single staff section
-    sorted_staff = sorted(single_staff_data.items(), key=lambda x: sum(x[1]['services'].values()), reverse=True)
-    
+
+    # ── Per-staff breakdown ─────────────────────────────────────────────────
+    sorted_staff = sorted(staff_data.items(), key=lambda x: sum(x[1]['services'].values()), reverse=True)
     for staff_name, data in sorted_staff:
-        services = data['services']
-        payments = data['payments']
-        staff_total = sum(services.values())
-        
-        description += f"**{EMOJI_BULLET} {staff_name}** ({staff_total} ticket{'s' if staff_total != 1 else ''} done)\n\n"
-        
-        # Services section
-        description += f"**Services:**\n"
-        sorted_services = sorted(services.items(), key=lambda x: x[1], reverse=True)
-        for service, count in sorted_services[:10]:
-            description += f"   • {service}: `{count}x`\n"
-        
-        if len(sorted_services) > 10:
-            remaining = sum(s[1] for s in sorted_services[10:])
-            description += f"   • ... and {len(sorted_services) - 10} more (`{remaining}x`)\n"
-        
+        staff_total = sum(data['services'].values())
+        description += f"**{EMOJI_BULLET} Done by: {staff_name}** — `{staff_total}` service{'s' if staff_total != 1 else ''}\n"
+
+        # Services
+        description += "**Services:**\n"
+        for svc, cnt in sorted(data['services'].items(), key=lambda x: x[1], reverse=True)[:10]:
+            description += f"   • {svc}: `{cnt}x`\n"
+        if len(data['services']) > 10:
+            rest = sum(v for k, v in list(data['services'].items())[10:])
+            description += f"   • … {len(data['services']) - 10} more (`{rest}x`)\n"
+
+        # Payments
+        description += "**Payments:**\n"
+        for pay, cnt in sorted(data['payments'].items(), key=lambda x: x[1], reverse=True):
+            description += f"   • {pay}: `{cnt}x`\n"
+
+        # Paid to breakdown for this completer
+        description += "**Paid to:**\n"
+        for recipient, cnt in sorted(data['paid_to'].items(), key=lambda x: x[1], reverse=True):
+            description += f"   • {recipient}: `{cnt}x`\n"
+
         description += "\n"
-        
-        # Payment methods section
-        description += f"**💳 Payments:**\n"
-        sorted_payments = sorted(payments.items(), key=lambda x: x[1], reverse=True)
-        for method, cnt in sorted_payments:
-            description += f"   • {method}: `{cnt}x`\n"
-        
-        description += "\n"
-    
-    # Multi-staff section (if any)
-    if multi_staff_data:
-        multi_total = sum(sum(d['services'].values()) for d in multi_staff_data.values())
-        description += "━━━━━━━━━━━━━━━━━━━━━━\n"
-        description += f"**👥 MULTI-STAFF SERVICES** ({multi_total} ticket{'s' if multi_total != 1 else ''})\n\n"
-        
-        sorted_multi = sorted(multi_staff_data.items(), key=lambda x: sum(x[1]['services'].values()), reverse=True)
-        
-        for staff_names, data in sorted_multi:
-            services = data['services']
-            payments = data['payments']
-            multi_staff_total = sum(services.values())
-            
-            description += f"**{EMOJI_BULLET} {staff_names}** ({multi_staff_total} ticket{'s' if multi_staff_total != 1 else ''})\n\n"
-            
-            # Services
-            description += f"**Services:**\n"
-            sorted_services = sorted(services.items(), key=lambda x: x[1], reverse=True)
-            for service, count in sorted_services[:10]:
-                description += f"   • {service}: `{count}x`\n"
-            
-            description += "\n"
-            
-            # Payments
-            description += f"**💳 Payments:**\n"
-            sorted_payments = sorted(payments.items(), key=lambda x: x[1], reverse=True)
-            for method, cnt in sorted_payments:
-                description += f"   • {method}: `{cnt}x`\n"
-            
-            description += "\n"
-    
+
     embed = style_embed(
         title=f"{BRAND_EMOJI} {period_name} Revenue Report {BRAND_EMOJI}",
         description=description,
         color=BRAND_COLOR,
         kind="info"
     )
-    
-    # Add timestamp
-    embed.set_footer(text=f"United Bunnies Revenue System • Generated at {datetime.datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
-    
+    embed.set_footer(text=f"United Bunnies Revenue System • {datetime.datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
     await ctx.send(embed=embed)
 
 
@@ -832,14 +785,23 @@ async def revenue_via_staff(ctx: commands.Context, staff_name: str, days: int = 
 
     description += "\n**Recent Transactions:**\n"
     for e in entries[:10]:
-        client = e.get("client_name") or e.get("user_name") or "Unknown"
+        client  = e.get("client_name") or e.get("user_name") or "Unknown"
         service = e.get("service") or "Unknown"
         payment = e.get("payment") or "Unknown"
         done_by = e.get("done_by_name") or "Unknown"
         paid_to = e.get("paid_to") or "Unknown"
         dt = e.get("done_at") or e.get("timestamp")
         date_str = dt.strftime("%d %b %Y") if isinstance(dt, datetime.datetime) else "Unknown"
-        description += f"• `{date_str}` — {client} — {service} — {payment} — paid to {paid_to} — done by {done_by}\n"
+        value = e.get("payment_value")
+        value_text = format_value(float(value)) if isinstance(value, (int, float)) and value > 0 else "Non-Ingame"
+        description += (
+            f"\n`{date_str}`\n"
+            f"  👤 **Client:** {client}\n"
+            f"  🛠️ **Service:** {service}\n"
+            f"  💳 **Payment:** {payment}  •  `{value_text}`\n"
+            f"  ✅ **Done by:** {done_by}\n"
+            f"  💰 **Paid to:** {paid_to}\n"
+        )
 
     embed = style_embed(title=f"{BRAND_EMOJI} Staff Revenue Report", description=description, color=BRAND_COLOR, kind="info")
     embed.set_footer(text=f"United Bunnies Revenue System • ?revenuevia \"staff name\" {days}")
