@@ -26,20 +26,21 @@ from bot.revenue_database import (
     get_revenue_managers_due, mark_revenue_manager_weekly_dm
 )
 
-# Expected format (all fields required for new entries):
-# Client : @username OR customer_name
-# Service : service_name (your internal service name)
-# Payment : payment/item received (Blox Fruits value item OR non-ingame payment)
-# Paid to : @staff_member OR plain_name
-# Done by : @helper OR helper_name (REQUIRED)
-# Done at : date (e.g. 17 Aug 2026, 2026-08-17, 17/08/2026)
+# Revenue entry format — all 6 fields required:
+#
+# Client   : client's name or @mention
+# Service  : what service was provided (e.g. raids, trials, leveling)
+# Payment  : what was received (Blox Fruits item, Robux, Cashapp, etc.)
+# Done by  : @staff who completed the service
+# Paid to  : @staff who received the payment
+# Done at  : service completion date (e.g. 17 Aug 2026)
 
 REVENUE_PATTERN = re.compile(
     r"Client\s*:\s*(?:<@!?(\d+)>|([^\n]+?))(?:\n|$).*?"
     r"Service\s*:\s*([^\n]+?)(?:\n|$).*?"
     r"Payment\s*:\s*([^\n]+?)(?:\n|$).*?"
-    r"Paid\s*to\s*:\s*(?:<@!?(\d+)>|([^\n]+?))(?:\n|$).*?"
     r"Done\s*by\s*:\s*(?:<@!?(\d+)>|([^\n]+?))(?:\n|$).*?"
+    r"Paid\s*to\s*:\s*(?:<@!?(\d+)>|([^\n]+?))(?:\n|$).*?"
     r"Done\s*at\s*:\s*([^\n]+?)(?:\n|$)",
     re.IGNORECASE | re.DOTALL
 )
@@ -47,36 +48,36 @@ REVENUE_PATTERN = re.compile(
 CORRECT_FORMAT = """
 **Required Revenue Format:**
 ```
-Client : @username OR customer_name
-Service : service_name (e.g., trials, raids, leveling)
-Payment : payment/item (e.g., Tiger, Dough, 2x Money, Red Lightning, Cashapp)
-Paid to : @staff OR staff_name
-Done by : @helper OR helper_name
-Done at : date (e.g., 17 Aug 2026)
+Client  : @username OR customer_name
+Service : service type (e.g. raids, trials, leveling)
+Payment : what you received (e.g. Leopard, Tiger, Robux, Cashapp)
+Done by : @staff_who_completed_it
+Paid to : @staff_who_received_payment
+Done at : service date (e.g. 17 Aug 2026)
 ```
 
-**Important:** `Done by` and `Done at` are required. If the service has not been completed yet, finish it first and then submit the revenue entry.
+**All 6 fields are required.** Complete the service first, then submit the entry.
 
 **Examples:**
 ```
-Client : @HINATA
-Service : trials/raids
+Client  : @HINATA
+Service : raids
 Payment : Leopard
-Paid to : @Roger
 Done by : @Detrox
+Paid to : @Roger
 Done at : 17 Aug 2026
 ```
-
 ```
-Client : HINATA
-Service : raids
-Payment : Cashapp
-Paid to : Roger
+Client  : HINATA
+Service : trials
+Payment : Robux
 Done by : Detrox
+Paid to : Roger
 Done at : 17/08/2026
 ```
 
-**Calculable Blox Fruits examples:** `Tiger`, `Dough`, `Leopard`, `Kitsune`, `Dragon`, `2x Money`, `2x Mastery`, `Fast Boats`, `Red Lightning`, `Purple Lightning`, `Werewolf`
+**Calculable Blox Fruits items:** `Tiger`, `Dough`, `Leopard`, `Kitsune`, `Dragon`, `2x Money`, `2x Mastery`, `Fast Boats`, `Red Lightning`, `Purple Lightning`, `Werewolf`
+**Other payments** (Robux, Cashapp, etc.) are recorded as-is without a calculated value.
 """
 
 DATE_FORMATS = (
@@ -151,25 +152,33 @@ async def validate_and_record_revenue(message: discord.Message):
             print(f"⚠️ Error sending validation message: {e}")
         return True
     
-    # Extract data (supports both @mentions and plain names)
-    client_id_str = match.group(1)
-    client_name = match.group(2)
-    service = match.group(3).strip()
+    # Extract data — groups match REVENUE_PATTERN order:
+    # 1/2 = client id / plain name
+    # 3   = service
+    # 4   = payment
+    # 5/6 = done_by id / plain name
+    # 7/8 = paid_to id / plain name
+    # 9   = done_at date
+    client_id_str  = match.group(1)
+    client_name    = match.group(2)
+    service        = match.group(3).strip()
     payment_method = match.group(4).strip()
-    paid_to_id_str = match.group(5)
-    paid_to_name = match.group(6)
-    done_by_id_str = match.group(7)
-    done_by_name = match.group(8)
-    done_at_raw = match.group(9).strip()
+    done_by_id_str = match.group(5)
+    done_by_name   = match.group(6)
+    paid_to_id_str = match.group(7)
+    paid_to_name   = match.group(8)
+    done_at_raw    = match.group(9).strip()
 
     # Required field checks
     missing = []
-    if not (service and service.strip()):
+    if not service:
         missing.append("Service")
-    if not (payment_method and payment_method.strip()):
+    if not payment_method:
         missing.append("Payment")
     if not (done_by_id_str or (done_by_name and done_by_name.strip())):
         missing.append("Done by")
+    if not (paid_to_id_str or (paid_to_name and paid_to_name.strip())):
+        missing.append("Paid to")
     if not done_at_raw:
         missing.append("Done at")
     if missing:
@@ -177,12 +186,11 @@ async def validate_and_record_revenue(message: discord.Message):
             warning = await message.reply(
                 f"⚠️ {message.author.mention} **Revenue entry incomplete.**\n\n"
                 f"Missing required field(s): **{', '.join(missing)}**\n\n"
-                "The service must be completed first. Please add the staff member who actually completed it in `Done by` and the completion date in `Done at`.\n\n"
                 f"{CORRECT_FORMAT}",
                 mention_author=True
             )
             await message.delete()
-            await warning.delete(delay=15)
+            await warning.delete(delay=20)
         except Exception as e:
             print(f"⚠️ Error sending incomplete revenue message: {e}")
         return True
@@ -201,57 +209,36 @@ async def validate_and_record_revenue(message: discord.Message):
             print(f"⚠️ Error sending invalid-date message: {e}")
         return True
 
-    # Determine client (prefer @mention, fallback to plain name)
+    # Resolve client
     if client_id_str:
         client_id = int(client_id_str)
         client = message.guild.get_member(client_id)
         client_display = client.display_name if client else f"User {client_id}"
     else:
-        client_display = client_name.strip()
+        client_display = (client_name or "").strip()
         client_id = 0
 
-    # Determine paid_to (prefer @mention, fallback to plain name)
+    # Resolve done_by (service completer) — accept plain names as-is
+    if done_by_id_str:
+        done_by_id = int(done_by_id_str)
+        done_by = message.guild.get_member(done_by_id)
+        done_by_display = done_by.display_name if done_by else f"User {done_by_id}"
+    else:
+        done_by = _find_member_by_name(message.guild, done_by_name)
+        done_by_id = done_by.id if done_by else 0
+        done_by_display = done_by.display_name if done_by else (done_by_name or "").strip()
+
+    # Resolve paid_to (payment recipient) — accept plain names as-is
     if paid_to_id_str:
         paid_to_id = int(paid_to_id_str)
         paid_to = message.guild.get_member(paid_to_id)
         paid_to_display = paid_to.display_name if paid_to else f"User {paid_to_id}"
     else:
-        paid_to_display = paid_to_name.strip()
+        paid_to_display = (paid_to_name or "").strip()
         paid_to_id = 0
 
-    # Done by: prefer @mention → resolved member. For plain names, accept as-is
-    # (same leniency as Client and Paid to) so entries with non-@mention names
-    # still get recorded instead of being rejected.
-    if done_by_id_str:
-        done_by_id = int(done_by_id_str)
-        done_by = message.guild.get_member(done_by_id)
-        if not done_by:
-            # Mention ID didn't resolve to a current member — still accept it
-            done_by_display = f"User {done_by_id}"
-        else:
-            done_by_display = done_by.display_name
-    else:
-        # Plain name — try to resolve for display, but never reject
-        done_by = _find_member_by_name(message.guild, done_by_name)
-        done_by_id = done_by.id if done_by else 0
-        done_by_display = done_by.display_name if done_by else (done_by_name or "").strip()
-
-    if not done_by_display:
-        try:
-            warning = await message.reply(
-                f"❌ {message.author.mention} **Done by is empty.**\n"
-                "Please add the name or @mention of the staff member who completed the service.\n"
-                "Example: `Done by : @Helper` or `Done by : HelperName`",
-                mention_author=True
-            )
-            await message.delete()
-            await warning.delete(delay=15)
-        except Exception as e:
-            print(f"⚠️ Error sending done-by validation message: {e}")
-        return True
-    # Only PAYMENT is checked against Blox Fruits Values. SERVICE is never used
-    # for value calculation. Unknown/non-ingame payments are intentionally
-    # left uncalculated; spelling mistakes are not fuzzy-matched.
+    # Payment value: try to calculate from Blox Fruits item.
+    # Non-ingame payments (Robux, Cashapp, etc.) remain uncalculated — that's fine.
     payment_value = None
     payment_value_name = None
     payment_value_checked_at = None
@@ -282,21 +269,20 @@ async def validate_and_record_revenue(message: discord.Message):
         
         # React to confirm
         await message.add_reaction("✅")
+        date_str = done_at.strftime("%d %b %Y") if done_at else done_at_raw
+        value_text = f"`{format_value(float(payment_value))}`" if payment_value is not None else "`Uncalculated / Non-Ingame`"
         if payment_value is not None:
             await message.add_reaction("💰")
-            confirmation = await message.channel.send(
-                f"💰 {message.author.mention} **Payment Calculated**\n"
-                f"`{payment_method}` → **{payment_value_name or payment_method}**\n"
-                f"Value: `{format_value(float(payment_value))}`\n"
-                f"Source: `{payment_source or 'direct'}`",
-                delete_after=10,
-            )
-        else:
-            confirmation = await message.channel.send(
-                f"ℹ️ {message.author.mention} **Payment Recorded**\n"
-                f"`{payment_method}` is not a recognized Blox Fruits value item, so it was saved as **Uncalculated / Non-Ingame Payment**.",
-                delete_after=10,
-            )
+        await message.channel.send(
+            f"✅ **Revenue Entry Recorded**\n"
+            f"**Client:** {client_display}\n"
+            f"**Service:** {service}\n"
+            f"**Payment:** {payment_method}  →  {value_text}\n"
+            f"**Done by:** {done_by_display}\n"
+            f"**Paid to:** {paid_to_display}\n"
+            f"**Date:** {date_str}",
+            delete_after=15,
+        )
 
     except Exception as e:
         print(f"❌ Error recording revenue: {e}")
@@ -773,7 +759,7 @@ async def revenue_details(ctx: commands.Context, days: int = 7):
         service = entry.get("service", "Unknown")
         payment = entry.get("payment", "Unknown")
         paid_to = entry.get("paid_to", "Unknown")
-        done_by = entry.get("done_by_name") or "Not recorded (legacy entry)"
+        done_by = entry.get("done_by_name") or "Unknown"
         done_at = entry.get("done_at") or entry.get("timestamp")
         if isinstance(done_at, datetime.datetime):
             if done_at.tzinfo is None:
@@ -785,13 +771,12 @@ async def revenue_details(ctx: commands.Context, days: int = 7):
         value_text = format_value(float(value)) if isinstance(value, (int, float)) and value > 0 else "Uncalculated / Non-Ingame"
 
         description += (
-            f"**{date_str}** • **{service}**\n"
-            f"  {EMOJI_BULLET} **Client:** {client}\n"
-            f"  {EMOJI_BULLET} **Payment:** {payment}\n"
-            f"  {EMOJI_BULLET} **Payment Value:** `{value_text}`\n"
-            f"  {EMOJI_BULLET} **Paid to:** {paid_to}\n"
-            f"  {EMOJI_BULLET} **Done by:** {done_by}\n"
-            f"  {EMOJI_BULLET} **Done at:** `{date_str}`\n\n"
+            f"**{date_str}**\n"
+            f"  👤 **Client:** {client}\n"
+            f"  🛠️ **Service:** {service}\n"
+            f"  💳 **Payment:** {payment}  •  `{value_text}`\n"
+            f"  ✅ **Done by:** {done_by}\n"
+            f"  💰 **Paid to:** {paid_to}\n\n"
         )
 
     if len(entries) < len(await get_revenue_entries(ctx.guild.id, days=days)):
@@ -905,9 +890,10 @@ async def revenue_help(ctx: commands.Context):
     embed.add_field(
         name="⚠️ Important",
         value=(
-            "`Done by` is mandatory. If the service is not finished yet, **finish it first** and then record the staff member who completed it.\n"
-            "`Done at` is mandatory and records the service completion date.\n"
-            "Payment value is calculated from the payment/item; non-ingame payments remain uncalculated."
+            "`Done by` is the staff member who completed the service.\n"
+            "`Paid to` is the staff member who received the payment.\n"
+            "`Done at` records the service completion date.\n"
+            "Payment value is auto-calculated for Blox Fruits items. Robux, Cashapp, and other non-ingame payments are saved as Uncalculated."
         ), inline=False
     )
     embed.set_footer(text="United Bunnies Revenue System")
