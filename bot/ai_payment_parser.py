@@ -11,7 +11,7 @@ import aiohttp
 from bot.blox_values import get_cached_value_names, lookup_payment
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_PAYMENT_MODEL", "gemini-2.5-flash-lite").strip()
+GEMINI_MODEL = os.getenv("GEMINI_PAYMENT_MODEL", "gemini-3.5-flash-lite").strip()
 AI_ENABLED = os.getenv("AI_PAYMENT_PARSER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 

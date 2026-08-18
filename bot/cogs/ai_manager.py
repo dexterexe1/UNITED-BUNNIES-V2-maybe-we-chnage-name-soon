@@ -33,7 +33,7 @@ from bot.ai_manager_database import (
 )
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
-GEMINI_MODEL = os.getenv('GEMINI_AI_MANAGER_MODEL', os.getenv('GEMINI_PAYMENT_MODEL', 'gemini-2.5-flash-lite')).strip()
+GEMINI_MODEL = os.getenv('GEMINI_AI_MANAGER_MODEL', os.getenv('GEMINI_PAYMENT_MODEL', 'gemini-3.5-flash-lite')).strip()
 AI_ENABLED = os.getenv('AI_MANAGER_ENABLED', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
 
 _PENDING_ACTIONS: dict[int, dict[str, Any]] = {}
