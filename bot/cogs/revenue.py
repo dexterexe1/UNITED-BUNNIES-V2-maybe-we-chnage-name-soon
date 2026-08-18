@@ -219,20 +219,29 @@ async def validate_and_record_revenue(message: discord.Message):
         paid_to_display = paid_to_name.strip()
         paid_to_id = 0
 
-    # Done by is REQUIRED. Resolve to a real guild member when possible.
+    # Done by: prefer @mention → resolved member. For plain names, accept as-is
+    # (same leniency as Client and Paid to) so entries with non-@mention names
+    # still get recorded instead of being rejected.
     if done_by_id_str:
         done_by_id = int(done_by_id_str)
         done_by = message.guild.get_member(done_by_id)
+        if not done_by:
+            # Mention ID didn't resolve to a current member — still accept it
+            done_by_display = f"User {done_by_id}"
+        else:
+            done_by_display = done_by.display_name
     else:
+        # Plain name — try to resolve for display, but never reject
         done_by = _find_member_by_name(message.guild, done_by_name)
         done_by_id = done_by.id if done_by else 0
+        done_by_display = done_by.display_name if done_by else (done_by_name or "").strip()
 
-    if not done_by:
+    if not done_by_display:
         try:
             warning = await message.reply(
-                f"❌ {message.author.mention} **Done by must identify a real server member.**\n"
-                "Use a mention such as `Done by : @Helper` so the service completer is recorded correctly.\n\n"
-                "If the service is not finished yet, complete it first before submitting the revenue entry.",
+                f"❌ {message.author.mention} **Done by is empty.**\n"
+                "Please add the name or @mention of the staff member who completed the service.\n"
+                "Example: `Done by : @Helper` or `Done by : HelperName`",
                 mention_author=True
             )
             await message.delete()
@@ -240,8 +249,6 @@ async def validate_and_record_revenue(message: discord.Message):
         except Exception as e:
             print(f"⚠️ Error sending done-by validation message: {e}")
         return True
-
-    done_by_display = done_by.display_name
     # Only PAYMENT is checked against Blox Fruits Values. SERVICE is never used
     # for value calculation. Unknown/non-ingame payments are intentionally
     # left uncalculated; spelling mistakes are not fuzzy-matched.
