@@ -318,9 +318,12 @@ def _relevant_sheet_text(text: str, query: str, max_chars: int = 14000) -> str:
     return "\n\n".join(out) or raw[:max_chars]
 
 
-async def _gemini(text: str, ctx: commands.Context, data: dict[str, Any]) -> dict[str, Any] | None:
-    if not GEMINI_API_KEY or not AI_ENABLED:
-        return None
+async def _gemini(text: str, ctx: commands.Context, data: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    """Call Gemini and return (result, error_reason). error_reason is None on success."""
+    if not AI_ENABLED:
+        return None, 'disabled'
+    if not GEMINI_API_KEY:
+        return None, 'no_key'
     knowledge = {
         'prices': data.get('prices') or [],
         'rules': data.get('rules') or [],
@@ -359,18 +362,38 @@ Safe action rules:
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, json=payload, headers=headers) as response:
+                if response.status == 400:
+                    body = await response.text()
+                    print(f'❌ Gemini API 400 Bad Request: {body[:2000]}')
+                    return None, 'bad_request'
+                if response.status == 401 or response.status == 403:
+                    body = await response.text()
+                    print(f'❌ Gemini API {response.status} Auth error: {body[:2000]}')
+                    return None, 'bad_key'
+                if response.status == 429:
+                    print(f'❌ Gemini API 429 Rate limited')
+                    return None, 'rate_limit'
                 if response.status != 200:
                     body = await response.text()
                     print(f'❌ Gemini API error {response.status}: {body[:2000]}')
-                    return None
+                    return None, f'http_{response.status}'
                 raw = await response.json()
         text_out = ''.join(part.get('text', '') for c in raw.get('candidates', []) for part in c.get('content', {}).get('parts', []) if isinstance(part.get('text'), str)).strip()
         text_out = re.sub(r'^```(?:json)?\s*|\s*```$', '', text_out, flags=re.I)
         result = json.loads(text_out)
-        return result if isinstance(result, dict) else None
+        return (result if isinstance(result, dict) else None), None
+    except aiohttp.ClientConnectorError as exc:
+        print(f'⚠️ AI Manager network error: {exc}')
+        return None, 'network'
+    except aiohttp.ServerTimeoutError:
+        print(f'⚠️ AI Manager request timed out')
+        return None, 'timeout'
+    except json.JSONDecodeError as exc:
+        print(f'⚠️ AI Manager bad JSON response: {exc}')
+        return None, 'bad_response'
     except Exception as exc:
         print(f'⚠️ AI Manager request failed: {exc}')
-        return None
+        return None, 'unknown'
 
 
 @bot.hybrid_command(name='provideai', help='Bot owner: enable premium AI Manager for a server, using a server selector if no server is given.')
@@ -520,9 +543,20 @@ async def ai_cmd(ctx: commands.Context, *, question: str):
         await ctx.send(embed=_disabled_message())
         return
     data = await get_guild(ctx.guild.id)
-    result = await _gemini(question, ctx, data)
-    if not result:
-        await ctx.send(embed=style_embed('AI Manager', description='⚠️ AI is temporarily unavailable. Check `GEMINI_API_KEY` and the AI service logs.', kind='warn'))
+    result, error = await _gemini(question, ctx, data)
+    if error:
+        _error_messages = {
+            'no_key':       '❌ `GEMINI_API_KEY` is not set. The bot owner needs to add it to the environment variables.',
+            'disabled':     '❌ The AI Manager is disabled globally (`AI_MANAGER_ENABLED=false`).',
+            'bad_key':      '❌ The Gemini API key was rejected (401/403). It may be invalid or expired — the bot owner needs to update `GEMINI_API_KEY`.',
+            'rate_limit':   '⏳ Gemini is rate limiting the bot right now. Try again in a few seconds.',
+            'timeout':      '⏳ The AI took too long to respond. Try again.',
+            'network':      '❌ Could not reach the Gemini API. Check the bot\'s internet connection.',
+            'bad_response': '❌ Gemini returned an unexpected response format. Try again or contact the bot owner.',
+            'bad_request':  '❌ The request was rejected by Gemini (400). This may be a prompt or model issue — contact the bot owner.',
+        }
+        msg = _error_messages.get(error) or f'⚠️ AI is temporarily unavailable (`{error}`). Check the bot logs.'
+        await ctx.send(embed=style_embed('AI Manager', description=msg, kind='warn'))
         return
     if result.get('mode') != 'action' or not result.get('action') or result.get('action', {}).get('type') in (None, 'null'):
         answer = str(result.get('answer') or 'I could not find that in this server’s configured information.')
@@ -542,6 +576,64 @@ async def ai_cmd(ctx: commands.Context, *, question: str):
     action_id = hash((ctx.message.id if ctx.message else 0, ctx.author.id, question))
     _PENDING_ACTIONS[action_id] = action
     await ctx.send(embed=style_embed('AI Action Preview', description=summary + '\n\nNothing has been changed yet. Confirm to execute.', kind='warn'), view=AIActionView(ctx.author.id, action_id))
+
+
+@bot.hybrid_command(name='aitest', help='Bot owner: test the Gemini API connection and show a live diagnostic.')
+async def ai_test(ctx: commands.Context):
+    if not _is_owner(ctx.author.id):
+        await ctx.send(embed=style_embed('Unauthorized', description='Only bot owners can run the AI diagnostic.', kind='error'))
+        return
+
+    lines = []
+    lines.append(f"**`GEMINI_API_KEY`:** {'✅ Set (`' + GEMINI_API_KEY[:6] + '...`)' if GEMINI_API_KEY else '❌ Not set'}")
+    lines.append(f"**`AI_MANAGER_ENABLED`:** {'✅ True' if AI_ENABLED else '❌ False'}")
+    lines.append(f"**Model:** `{GEMINI_MODEL}`")
+
+    if not GEMINI_API_KEY:
+        lines.append('\n❌ Cannot reach Gemini — API key is missing.')
+        await ctx.send(embed=style_embed('AI Diagnostic', description='\n'.join(lines), kind='warn'))
+        return
+    if not AI_ENABLED:
+        lines.append('\n❌ AI is disabled via `AI_MANAGER_ENABLED`.')
+        await ctx.send(embed=style_embed('AI Diagnostic', description='\n'.join(lines), kind='warn'))
+        return
+
+    lines.append('\n⏳ Pinging Gemini API...')
+    msg = await ctx.send(embed=style_embed('AI Diagnostic', description='\n'.join(lines), kind='info'))
+
+    url = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
+    payload = {
+        'contents': [{'parts': [{'text': 'Reply with {"ok": true}'}]}],
+        'generationConfig': {'temperature': 0, 'responseMimeType': 'application/json'},
+    }
+    headers = {'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY}
+    try:
+        import time as _time
+        t0 = _time.monotonic()
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+            async with session.post(url, json=payload, headers=headers) as response:
+                elapsed = round((_time.monotonic() - t0) * 1000)
+                body = await response.text()
+                if response.status == 200:
+                    lines[-1] = f'✅ Gemini responded OK in **{elapsed}ms** (HTTP 200).'
+                    kind = 'success'
+                elif response.status in (401, 403):
+                    lines[-1] = f'❌ Auth failed (HTTP {response.status}) — API key is invalid or expired.\n```\n{body[:300]}\n```'
+                    kind = 'error'
+                elif response.status == 429:
+                    lines[-1] = f'⏳ Rate limited (HTTP 429). Try again in a moment.'
+                    kind = 'warn'
+                else:
+                    lines[-1] = f'❌ HTTP {response.status}:\n```\n{body[:300]}\n```'
+                    kind = 'error'
+    except aiohttp.ServerTimeoutError:
+        lines[-1] = '❌ Request timed out (>15s). Gemini may be unreachable.'
+        kind = 'error'
+    except Exception as exc:
+        lines[-1] = f'❌ Exception: `{exc}`'
+        kind = 'error'
+
+    await msg.edit(embed=style_embed('AI Diagnostic', description='\n'.join(lines), kind=kind))
 
 
 @bot.hybrid_command(name='aiimportprice', help='Import a large pricing document by sending multiple messages, then type done.')

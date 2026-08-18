@@ -57,8 +57,11 @@ _background_tasks_started = False
 async def on_ready():
     global _ready_initialized, _background_tasks_started
     if not _ready_initialized:
-        # Ensure all DB tables exist before any event handler queries them
+        # Initialize database tables on first startup
+        print("🔧 Initializing database...")
         init_db()
+        print("✅ Database initialized")
+        
         try:
             bot.tree.add_command(mod_group)
         except discord.app_commands.CommandAlreadyRegistered:
@@ -579,7 +582,9 @@ async def on_message(message):
         if candidate_command:
             ai_commands = {
                 "ai", "aihelp", "aiimportprice", "aiimportrules", "aiprice",
-                "airule", "aiservice", "aiconfig", "aiclear",
+                "airule", "aiservice", "aiconfig", "aiclear", "aitest",
+                "provideai", "disableai", "providenonprefix", "disablenonprefix",
+                "aistatus", "ailist",
             }
             if first_word in ai_commands:
                 try:
