@@ -32,9 +32,23 @@ from bot.ai_manager_database import (
     remove_service,
 )
 
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
 GEMINI_MODEL = os.getenv('GEMINI_AI_MANAGER_MODEL', os.getenv('GEMINI_PAYMENT_MODEL', 'gemini-3.5-flash-lite')).strip()
 AI_ENABLED = os.getenv('AI_MANAGER_ENABLED', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+def _load_gemini_keys() -> list[str]:
+    """Load all configured Gemini API keys: GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_API_KEY_3, ..."""
+    keys = []
+    primary = os.getenv('GEMINI_API_KEY', '').strip()
+    if primary:
+        keys.append(primary)
+    for i in range(2, 11):
+        k = os.getenv(f'GEMINI_API_KEY_{i}', '').strip()
+        if k:
+            keys.append(k)
+    return keys
+
+GEMINI_API_KEYS: list[str] = _load_gemini_keys()
+GEMINI_API_KEY = GEMINI_API_KEYS[0] if GEMINI_API_KEYS else ''  # kept for ?aitest display
 
 _PENDING_ACTIONS: dict[int, dict[str, Any]] = {}
 
@@ -319,10 +333,11 @@ def _relevant_sheet_text(text: str, query: str, max_chars: int = 14000) -> str:
 
 
 async def _gemini(text: str, ctx: commands.Context, data: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
-    """Call Gemini and return (result, error_reason). error_reason is None on success."""
+    """Call Gemini and return (result, error_reason). error_reason is None on success.
+    Automatically tries all configured API keys before giving up."""
     if not AI_ENABLED:
         return None, 'disabled'
-    if not GEMINI_API_KEY:
+    if not GEMINI_API_KEYS:
         return None, 'no_key'
     knowledge = {
         'prices': data.get('prices') or [],
@@ -363,43 +378,69 @@ Safe action rules:
 """
     url = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
     payload = {'contents': [{'parts': [{'text': prompt}]}], 'generationConfig': {'temperature': 0, 'responseMimeType': 'application/json'}}
-    headers = {'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY}
-    try:
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, json=payload, headers=headers) as response:
-                if response.status == 400:
-                    body = await response.text()
-                    print(f'❌ Gemini API 400 Bad Request: {body[:2000]}')
-                    return None, 'bad_request'
-                if response.status == 401 or response.status == 403:
-                    body = await response.text()
-                    print(f'❌ Gemini API {response.status} Auth error: {body[:2000]}')
-                    return None, 'bad_key'
-                if response.status == 429:
-                    print(f'❌ Gemini API 429 Rate limited')
-                    return None, 'rate_limit'
-                if response.status != 200:
-                    body = await response.text()
-                    print(f'❌ Gemini API error {response.status}: {body[:2000]}')
-                    return None, f'http_{response.status}'
-                raw = await response.json()
-        text_out = ''.join(part.get('text', '') for c in raw.get('candidates', []) for part in c.get('content', {}).get('parts', []) if isinstance(part.get('text'), str)).strip()
-        text_out = re.sub(r'^```(?:json)?\s*|\s*```$', '', text_out, flags=re.I)
-        result = json.loads(text_out)
-        return (result if isinstance(result, dict) else None), None
-    except aiohttp.ClientConnectorError as exc:
-        print(f'⚠️ AI Manager network error: {exc}')
-        return None, 'network'
-    except aiohttp.ServerTimeoutError:
-        print(f'⚠️ AI Manager request timed out')
-        return None, 'timeout'
-    except json.JSONDecodeError as exc:
-        print(f'⚠️ AI Manager bad JSON response: {exc}')
-        return None, 'bad_response'
-    except Exception as exc:
-        print(f'⚠️ AI Manager request failed: {exc}')
-        return None, 'unknown'
+
+    last_error = 'no_key'
+    for key_index, api_key in enumerate(GEMINI_API_KEYS):
+        headers = {'Content-Type': 'application/json', 'x-goog-api-key': api_key}
+        try:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=payload, headers=headers) as response:
+                    if response.status == 400:
+                        body = await response.text()
+                        print(f'❌ Gemini key #{key_index+1} API 400 Bad Request: {body[:500]}')
+                        last_error = 'bad_request'
+                        break  # bad request won't be fixed by a different key
+                    if response.status in (401, 403):
+                        body = await response.text()
+                        print(f'⚠️ Gemini key #{key_index+1} auth error ({response.status}) — trying next key')
+                        last_error = 'bad_key'
+                        continue  # try next key
+                    if response.status == 404:
+                        body = await response.text()
+                        print(f'❌ Gemini key #{key_index+1} 404: {body[:500]}')
+                        last_error = f'http_404'
+                        break  # model not found — same for all keys
+                    if response.status == 429:
+                        print(f'⚠️ Gemini key #{key_index+1} rate limited — trying next key')
+                        last_error = 'rate_limit'
+                        continue  # try next key
+                    if response.status != 200:
+                        body = await response.text()
+                        print(f'❌ Gemini key #{key_index+1} HTTP {response.status}: {body[:500]}')
+                        last_error = f'http_{response.status}'
+                        continue  # try next key
+                    raw = await response.json()
+            text_out = ''.join(
+                part.get('text', '')
+                for c in raw.get('candidates', [])
+                for part in c.get('content', {}).get('parts', [])
+                if isinstance(part.get('text'), str)
+            ).strip()
+            text_out = re.sub(r'^```(?:json)?\s*|\s*```$', '', text_out, flags=re.I)
+            result = json.loads(text_out)
+            if key_index > 0:
+                print(f'✅ Gemini succeeded on key #{key_index+1} (fallback)')
+            return (result if isinstance(result, dict) else None), None
+        except aiohttp.ClientConnectorError as exc:
+            print(f'⚠️ Gemini key #{key_index+1} network error: {exc}')
+            last_error = 'network'
+            continue
+        except aiohttp.ServerTimeoutError:
+            print(f'⚠️ Gemini key #{key_index+1} timed out')
+            last_error = 'timeout'
+            continue
+        except json.JSONDecodeError as exc:
+            print(f'⚠️ Gemini key #{key_index+1} bad JSON: {exc}')
+            last_error = 'bad_response'
+            break
+        except Exception as exc:
+            print(f'⚠️ Gemini key #{key_index+1} failed: {exc}')
+            last_error = 'unknown'
+            continue
+
+    print(f'❌ All {len(GEMINI_API_KEYS)} Gemini key(s) exhausted. Last error: {last_error}')
+    return None, last_error
 
 
 @bot.hybrid_command(name='provideai', help='Bot owner: enable premium AI Manager for a server, using a server selector if no server is given.')
@@ -591,12 +632,16 @@ async def ai_test(ctx: commands.Context):
         return
 
     lines = []
-    lines.append(f"**`GEMINI_API_KEY`:** {'✅ Set (`' + GEMINI_API_KEY[:6] + '...`)' if GEMINI_API_KEY else '❌ Not set'}")
+    lines.append(f"**Keys loaded:** `{len(GEMINI_API_KEYS)}`")
+    for i, k in enumerate(GEMINI_API_KEYS):
+        lines.append(f"  • Key #{i+1}: `{k[:6]}...`")
+    if not GEMINI_API_KEYS:
+        lines.append("  • ❌ No keys set")
     lines.append(f"**`AI_MANAGER_ENABLED`:** {'✅ True' if AI_ENABLED else '❌ False'}")
     lines.append(f"**Model:** `{GEMINI_MODEL}`")
 
-    if not GEMINI_API_KEY:
-        lines.append('\n❌ Cannot reach Gemini — API key is missing.')
+    if not GEMINI_API_KEYS:
+        lines.append('\n❌ Cannot reach Gemini — no API keys are set.')
         await ctx.send(embed=style_embed('AI Diagnostic', description='\n'.join(lines), kind='warn'))
         return
     if not AI_ENABLED:
@@ -608,33 +653,42 @@ async def ai_test(ctx: commands.Context):
     msg = await ctx.send(embed=style_embed('AI Diagnostic', description='\n'.join(lines), kind='info'))
 
     url = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
-    payload = {
-        'contents': [{'parts': [{'text': 'Reply with {"ok": true}'}]}],
-        'generationConfig': {'temperature': 0, 'responseMimeType': 'application/json'},
-    }
-    headers = {'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY}
+    import time as _time
+    kind = 'error'
     try:
-        import time as _time
-        t0 = _time.monotonic()
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
-            async with session.post(url, json=payload, headers=headers) as response:
-                elapsed = round((_time.monotonic() - t0) * 1000)
-                body = await response.text()
-                if response.status == 200:
-                    lines[-1] = f'✅ Gemini responded OK in **{elapsed}ms** (HTTP 200).'
-                    kind = 'success'
-                elif response.status in (401, 403):
-                    lines[-1] = f'❌ Auth failed (HTTP {response.status}) — API key is invalid or expired.\n```\n{body[:300]}\n```'
-                    kind = 'error'
-                elif response.status == 429:
-                    lines[-1] = f'⏳ Rate limited (HTTP 429). Try again in a moment.'
-                    kind = 'warn'
-                else:
-                    lines[-1] = f'❌ HTTP {response.status}:\n```\n{body[:300]}\n```'
-                    kind = 'error'
-    except aiohttp.ServerTimeoutError:
-        lines[-1] = '❌ Request timed out (>15s). Gemini may be unreachable.'
-        kind = 'error'
+        for i, test_key in enumerate(GEMINI_API_KEYS):
+            t0 = _time.monotonic()
+            try:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+                    async with session.post(url, json={'contents': [{'parts': [{'text': 'Reply with {"ok": true}'}]}], 'generationConfig': {'temperature': 0, 'responseMimeType': 'application/json'}}, headers={'Content-Type': 'application/json', 'x-goog-api-key': test_key}) as response:
+                        elapsed = round((_time.monotonic() - t0) * 1000)
+                        body = await response.text()
+                        if response.status == 200:
+                            lines[-1] = f'✅ Key #{i+1} responded OK in **{elapsed}ms**.'
+                            if i > 0:
+                                lines[-1] += f' *(keys 1–{i} failed, fallback worked)*'
+                            kind = 'success'
+                            break
+                        elif response.status in (401, 403):
+                            lines[-1] = f'⚠️ Key #{i+1}: auth error ({response.status}) — trying next...'
+                            kind = 'warn'
+                        elif response.status == 429:
+                            lines[-1] = f'⚠️ Key #{i+1}: rate limited — trying next...'
+                            kind = 'warn'
+                        else:
+                            lines[-1] = f'❌ Key #{i+1}: HTTP {response.status}\n```\n{body[:200]}\n```'
+                            kind = 'error'
+                            break
+            except aiohttp.ServerTimeoutError:
+                lines[-1] = f'⚠️ Key #{i+1}: timed out — trying next...'
+                kind = 'warn'
+            except Exception as exc:
+                lines[-1] = f'❌ Key #{i+1}: `{exc}`'
+                kind = 'error'
+                break
+        else:
+            lines[-1] = f'❌ All {len(GEMINI_API_KEYS)} key(s) failed.'
+            kind = 'error'
     except Exception as exc:
         lines[-1] = f'❌ Exception: `{exc}`'
         kind = 'error'

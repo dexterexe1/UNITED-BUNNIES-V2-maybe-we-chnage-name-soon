@@ -14,6 +14,20 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_PAYMENT_MODEL", "gemini-3.5-flash-lite").strip()
 AI_ENABLED = os.getenv("AI_PAYMENT_PARSER_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 
+def _load_gemini_keys() -> list[str]:
+    keys = []
+    primary = os.getenv("GEMINI_API_KEY", "").strip()
+    if primary:
+        keys.append(primary)
+    for i in range(2, 11):
+        k = os.getenv(f"GEMINI_API_KEY_{i}", "").strip()
+        if k:
+            keys.append(k)
+    return keys
+
+_GEMINI_KEYS: list[str] = _load_gemini_keys()
+GEMINI_API_KEY = _GEMINI_KEYS[0] if _GEMINI_KEYS else ""  # kept for compat
+
 
 def _clean(text: str) -> str:
     text = text.strip().casefold()
@@ -56,7 +70,7 @@ def _simple_aliases(payment: str) -> list[str]:
 
 
 async def _gemini_resolve(payment: str, item_names: list[str]) -> Optional[str]:
-    if not GEMINI_API_KEY or not AI_ENABLED or not item_names:
+    if not _GEMINI_KEYS or not AI_ENABLED or not item_names:
         return None
 
     names_text = "\n".join(f"- {name}" for name in sorted(set(item_names), key=str.casefold))
@@ -77,39 +91,46 @@ Rules:
 
 Return JSON only: {{"matched_name": "EXACT NAME OR null"}}"""
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    base_url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
     }
 
-    try:
-        timeout = aiohttp.ClientTimeout(total=12)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, json=payload) as response:
-                if response.status != 200:
-                    body = await response.text()
-                    print(f"⚠️ AI payment parser HTTP {response.status}: {body[:250]}")
-                    return None
-                data = await response.json()
-        text = "".join(
-            part.get("text", "")
-            for candidate in data.get("candidates", [])
-            for part in candidate.get("content", {}).get("parts", [])
-            if isinstance(part.get("text"), str)
-        ).strip()
-        if not text:
-            return None
-        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I)
-        parsed = json.loads(text)
-        matched = parsed.get("matched_name")
-        if not isinstance(matched, str) or not matched.strip() or _clean(matched) == "null":
-            return None
-        by_normalized = {_clean(name): name for name in item_names}
-        return by_normalized.get(_clean(matched))
-    except Exception as exc:
-        print(f"⚠️ AI payment parser failed: {exc}")
-        return None
+    for key_index, api_key in enumerate(_GEMINI_KEYS):
+        try:
+            url = f"{base_url}?key={api_key}"
+            timeout = aiohttp.ClientTimeout(total=12)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=payload) as response:
+                    if response.status in (401, 403, 429):
+                        print(f"⚠️ AI payment parser key #{key_index+1} HTTP {response.status} — trying next key")
+                        continue
+                    if response.status != 200:
+                        body = await response.text()
+                        print(f"⚠️ AI payment parser key #{key_index+1} HTTP {response.status}: {body[:250]}")
+                        continue
+                    data = await response.json()
+            text = "".join(
+                part.get("text", "")
+                for candidate in data.get("candidates", [])
+                for part in candidate.get("content", {}).get("parts", [])
+                if isinstance(part.get("text"), str)
+            ).strip()
+            if not text:
+                return None
+            text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I)
+            parsed = json.loads(text)
+            matched = parsed.get("matched_name")
+            if not isinstance(matched, str) or not matched.strip() or _clean(matched) == "null":
+                return None
+            by_normalized = {_clean(name): name for name in item_names}
+            return by_normalized.get(_clean(matched))
+        except Exception as exc:
+            print(f"⚠️ AI payment parser key #{key_index+1} failed: {exc}")
+            continue
+
+    return None
 
 
 async def resolve_payment(payment: str):
