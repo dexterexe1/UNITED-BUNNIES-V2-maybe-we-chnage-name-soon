@@ -1174,3 +1174,10 @@ def list_disabled_features(guild_id: int, type: str = 'command'):
     rows = cursor.fetchall()
     conn.close()
     return [r[0] for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Run init_db() at import time so all tables exist before any query runs,
+# even if on_ready hasn't fired yet (e.g. on_message firing during reconnect).
+# ---------------------------------------------------------------------------
+init_db()

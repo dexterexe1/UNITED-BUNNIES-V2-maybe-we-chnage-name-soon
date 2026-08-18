@@ -23,7 +23,7 @@ from bot.config import (
     EMOJI_BULLET, BOT_OWNER_IDS,
 )
 from bot.database import (
-    get_config, get_welcome_message, format_welcome_message,
+    init_db, get_config, get_welcome_message, format_welcome_message,
     is_leveling_enabled, get_levelup_channel, add_xp, xp_for_level,
     get_level_data, has_noprefix_perm, level_leaderboard,
     get_all_role_menu_message_ids, get_role_menu_items,
@@ -57,6 +57,8 @@ _background_tasks_started = False
 async def on_ready():
     global _ready_initialized, _background_tasks_started
     if not _ready_initialized:
+        # Ensure all DB tables exist before any event handler queries them
+        init_db()
         try:
             bot.tree.add_command(mod_group)
         except discord.app_commands.CommandAlreadyRegistered:
